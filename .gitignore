@@ -1,0 +1,25 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.ap_
+*.aab
+
+# Cursor / editor local
+.cursor/
+
+# Local ledger dumps / device pulls — never deploy these onto devices
+/data/
+/import/*.db
+/import/*.db-*
+/import/phone_recover/
+/import/emu_db/
+/import/**/*.json
+/import/js/

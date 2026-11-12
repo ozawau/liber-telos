@@ -15,12 +15,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.libertelos.app.data.ReportPeriod
 import com.libertelos.app.data.TxnType
 import com.libertelos.app.ui.accounts.AccountEditScreen
 import com.libertelos.app.ui.accounts.AccountLedgerScreen
 import com.libertelos.app.ui.accounts.AccountsScreen
 import com.libertelos.app.ui.add.AddScreen
 import com.libertelos.app.ui.categories.CategoryEditScreen
+import com.libertelos.app.ui.home.CategoryLedgerScreen
 import com.libertelos.app.ui.home.HomeScreen
 import com.libertelos.app.ui.home.TransactionDetailScreen
 import com.libertelos.app.ui.home.TransactionListScreen
@@ -62,7 +64,12 @@ private fun LiberTelosNav(app: LiberTelosApp) {
                 onAdd = { navController.navigate("add") },
                 onLedger = { navController.navigate("ledger") },
                 onStats = { navController.navigate("stats") },
-                onAccounts = { navController.navigate("accounts") }
+                onAccounts = { navController.navigate("accounts") },
+                onCategoryLedger = { categoryId, type, period ->
+                    navController.navigate(
+                        "category_ledger/$categoryId/${type.name}/${period.name}"
+                    )
+                }
             )
         }
         composable("ledger") {
@@ -70,6 +77,29 @@ private fun LiberTelosNav(app: LiberTelosApp) {
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onAdd = { navController.navigate("add") },
+                onOpenTransaction = { id -> navController.navigate("txn_detail/$id") }
+            )
+        }
+        composable(
+            route = "category_ledger/{categoryId}/{type}/{period}",
+            arguments = listOf(
+                navArgument("categoryId") { type = NavType.LongType },
+                navArgument("type") { type = NavType.StringType },
+                navArgument("period") { type = NavType.StringType }
+            )
+        ) { entry ->
+            val categoryId = entry.arguments?.getLong("categoryId") ?: return@composable
+            val typeName = entry.arguments?.getString("type") ?: TxnType.EXPENSE.name
+            val periodName = entry.arguments?.getString("period") ?: ReportPeriod.MONTH.name
+            val type = runCatching { TxnType.valueOf(typeName) }.getOrDefault(TxnType.EXPENSE)
+            val period = runCatching { ReportPeriod.valueOf(periodName) }
+                .getOrDefault(ReportPeriod.MONTH)
+            CategoryLedgerScreen(
+                viewModel = viewModel,
+                categoryId = categoryId,
+                type = type,
+                period = period,
+                onBack = { navController.popBackStack() },
                 onOpenTransaction = { id -> navController.navigate("txn_detail/$id") }
             )
         }

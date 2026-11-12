@@ -254,6 +254,7 @@ fun AddScreen(
                 remaining != null &&
                 amountCents <= remaining
         }
+        TxnType.BALANCE_ADJUSTMENT -> false
     }
 
     fun persist(lat: Double?, lng: Double?, address: String = "") {
@@ -577,6 +578,8 @@ fun AddScreen(
                         )
                     }
                 }
+
+                TxnType.BALANCE_ADJUSTMENT -> Unit
             }
 
             Spacer(Modifier.height(20.dp))

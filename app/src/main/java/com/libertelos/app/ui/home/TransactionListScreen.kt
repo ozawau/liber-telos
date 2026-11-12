@@ -345,6 +345,8 @@ private fun LedgerTransactionRow(
                 else -> "报销"
             }
         }
+        TxnType.BALANCE_ADJUSTMENT ->
+            txn.note.ifBlank { "余额变更" }
         else -> {
             val leaf = item.category?.name
             val parent = item.parentCategory?.name
@@ -365,6 +367,11 @@ private fun LedgerTransactionRow(
                 item.account?.name?.let { add(it) }
                 add(timeText)
             }
+            TxnType.BALANCE_ADJUSTMENT -> {
+                item.account?.name?.let { add(it) }
+                add("不计入收支")
+                add(timeText)
+            }
             else -> {
                 item.account?.name?.let { add(it) }
                 if (txn.note.isNotBlank()) add(txn.note)
@@ -378,11 +385,12 @@ private fun LedgerTransactionRow(
         TxnType.INCOME -> AmberOut
         TxnType.TRANSFER -> TransferBlue
         TxnType.REIMBURSEMENT -> ReimburseAmber
+        TxnType.BALANCE_ADJUSTMENT -> Color(0xFF8A94A6)
     }
     val amountPrefix = when (txn.type) {
         TxnType.EXPENSE -> ""
         TxnType.INCOME, TxnType.REIMBURSEMENT -> ""
-        TxnType.TRANSFER -> ""
+        TxnType.TRANSFER, TxnType.BALANCE_ADJUSTMENT -> ""
     }
 
     Row(

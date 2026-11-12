@@ -3,6 +3,7 @@ package com.libertelos.app.ui.categories
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -42,15 +44,27 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.libertelos.app.data.Account
 import com.libertelos.app.data.Category
@@ -59,6 +73,7 @@ import com.libertelos.app.data.TxnType
 import com.libertelos.app.ui.components.AccountIconBadge
 import com.libertelos.app.ui.theme.InkTeal
 import com.libertelos.app.viewmodel.LedgerViewModel
+import kotlin.math.roundToInt
 
 private sealed class CategoryDialog {
     data object AddParent : CategoryDialog()
@@ -85,10 +100,31 @@ fun CategoryEditScreen(
     var defaultAccountId by remember { mutableStateOf<Long?>(null) }
     var accountExpanded by remember { mutableStateOf(false) }
 
+    var draggingChild by remember { mutableStateOf<Category?>(null) }
+    var dragPointer by remember { mutableStateOf(Offset.Unspecified) }
+    var hoverParentId by remember { mutableStateOf<Long?>(null) }
+    var rootWindowOrigin by remember { mutableStateOf(Offset.Zero) }
+    val parentBounds = remember { mutableStateMapOf<Long, Rect>() }
+    val latestGroups by rememberUpdatedState(groups)
+    val latestMove by rememberUpdatedState<(Category, Long) -> Unit> { child, parentId ->
+        viewModel.moveChildCategory(child, parentId)
+    }
+
+    fun resolveHover(point: Offset): Long? =
+        parentBounds.entries
+            .firstOrNull { (_, rect) -> rect.contains(point) }
+            ?.key
+
+    fun clearDrag() {
+        draggingChild = null
+        dragPointer = Offset.Unspecified
+        hoverParentId = null
+    }
+
     val title = when (type) {
         TxnType.EXPENSE -> "编辑支出分类"
         TxnType.INCOME -> "编辑收入分类"
-        TxnType.TRANSFER, TxnType.REIMBURSEMENT -> "编辑分类"
+        TxnType.TRANSFER, TxnType.REIMBURSEMENT, TxnType.BALANCE_ADJUSTMENT -> "编辑分类"
     }
 
     pendingDelete?.let { target ->
@@ -217,140 +253,270 @@ fun CategoryEditScreen(
             )
         }
     ) { padding ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(padding)
+                .onGloballyPositioned { coords ->
+                    rootWindowOrigin = coords.positionInWindow()
+                }
         ) {
-            items(groups, key = { it.parent.id }) { group ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surface)
-                        .padding(14.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(Color(group.parent.colorArgb))
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = group.parent.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(
-                            onClick = {
-                                inputName = ""
-                                defaultAccountId = null
-                                dialog = CategoryDialog.AddChild(group.parent)
-                            },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Add,
-                                contentDescription = "新增二级分类",
-                                tint = InkTeal
+            LazyColumn(
+                userScrollEnabled = draggingChild == null,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                item(key = "hint") {
+                    Text(
+                        text = "长按二级分类，拖到其他一级分类上可变更归属",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                items(groups, key = { it.parent.id }) { group ->
+                    val isDropTarget = hoverParentId == group.parent.id
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                if (isDropTarget) Color(0xFFE6F2F1)
+                                else MaterialTheme.colorScheme.surface
                             )
-                        }
-                        if (group.children.none { it.isProtected }) {
+                            .border(
+                                width = if (isDropTarget) 2.dp else 0.dp,
+                                color = if (isDropTarget) InkTeal else Color.Transparent,
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            .onGloballyPositioned { coords ->
+                                val topLeft = coords.positionInWindow() - rootWindowOrigin
+                                parentBounds[group.parent.id] = Rect(
+                                    offset = topLeft,
+                                    size = androidx.compose.ui.geometry.Size(
+                                        width = coords.size.width.toFloat(),
+                                        height = coords.size.height.toFloat()
+                                    )
+                                )
+                            }
+                            .padding(14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(group.parent.colorArgb))
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = group.parent.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.weight(1f)
+                            )
                             IconButton(
-                                onClick = { pendingDelete = group.parent },
+                                onClick = {
+                                    inputName = ""
+                                    defaultAccountId = null
+                                    dialog = CategoryDialog.AddChild(group.parent)
+                                },
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
-                                    Icons.Default.Close,
-                                    contentDescription = "删除一级分类",
-                                    tint = MaterialTheme.colorScheme.error
+                                    Icons.Default.Add,
+                                    contentDescription = "新增二级分类",
+                                    tint = InkTeal
+                                )
+                            }
+                            if (group.children.none { it.isProtected }) {
+                                IconButton(
+                                    onClick = { pendingDelete = group.parent },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "删除一级分类",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(10.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            group.children.forEach { child ->
+                                val defaultName = child.defaultAccountId?.let { accountMap[it]?.name }
+                                val isDragging = draggingChild?.id == child.id
+                                ChildCategoryChip(
+                                    name = child.name,
+                                    defaultAccountName = defaultName,
+                                    showDelete = !child.isProtected,
+                                    dimmed = isDragging,
+                                    onClick = {
+                                        if (draggingChild != null) return@ChildCategoryChip
+                                        inputName = child.name
+                                        defaultAccountId = child.defaultAccountId
+                                        dialog = CategoryDialog.EditChild(child)
+                                    },
+                                    onDelete = { pendingDelete = child },
+                                    onDragStart = { windowPoint ->
+                                        draggingChild = child
+                                        dragPointer = windowPoint - rootWindowOrigin
+                                        hoverParentId = resolveHover(dragPointer)
+                                    },
+                                    onDrag = { windowPoint ->
+                                        dragPointer = windowPoint - rootWindowOrigin
+                                        hoverParentId = resolveHover(dragPointer)
+                                    },
+                                    onDragEnd = {
+                                        val target = hoverParentId
+                                        val moving = draggingChild
+                                        if (moving != null &&
+                                            target != null &&
+                                            target != moving.parentId &&
+                                            latestGroups.any { it.parent.id == target }
+                                        ) {
+                                            latestMove(moving, target)
+                                        }
+                                        clearDrag()
+                                    },
+                                    onDragCancel = { clearDrag() }
                                 )
                             }
                         }
                     }
+                }
 
-                    Spacer(Modifier.height(10.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                item {
+                    FilledTonalButton(
+                        onClick = {
+                            inputName = ""
+                            defaultAccountId = null
+                            dialog = CategoryDialog.AddParent
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(14.dp)
                     ) {
-                        group.children.forEach { child ->
-                            val defaultName = child.defaultAccountId?.let { accountMap[it]?.name }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(999.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .border(
-                                        1.dp,
-                                        MaterialTheme.colorScheme.outline,
-                                        RoundedCornerShape(999.dp)
-                                    )
-                                    .clickable {
-                                        inputName = child.name
-                                        defaultAccountId = child.defaultAccountId
-                                        dialog = CategoryDialog.EditChild(child)
-                                    }
-                                    .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
-                            ) {
-                                Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                                    Text(
-                                        text = child.name,
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                    if (defaultName != null) {
-                                        Text(
-                                            text = defaultName,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                                if (!child.isProtected) {
-                                    IconButton(
-                                        onClick = { pendingDelete = child },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Close,
-                                            contentDescription = "删除二级分类",
-                                            tint = MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        Icon(Icons.Default.Add, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("添加一级分类")
                     }
+                    Spacer(Modifier.height(20.dp))
                 }
             }
 
-            item {
-                FilledTonalButton(
-                    onClick = {
-                        inputName = ""
-                        defaultAccountId = null
-                        dialog = CategoryDialog.AddParent
-                    },
+            val floating = draggingChild
+            if (floating != null && dragPointer != Offset.Unspecified) {
+                val defaultName = floating.defaultAccountId?.let { accountMap[it]?.name }
+                ChildCategoryChip(
+                    name = floating.name,
+                    defaultAccountName = defaultName,
+                    showDelete = false,
+                    dimmed = false,
+                    onClick = {},
+                    onDelete = {},
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("添加一级分类")
-                }
-                Spacer(Modifier.height(20.dp))
+                        .zIndex(2f)
+                        .offset {
+                            IntOffset(
+                                (dragPointer.x - 48f).roundToInt(),
+                                (dragPointer.y - 24f).roundToInt()
+                            )
+                        }
+                        .shadow(8.dp, RoundedCornerShape(999.dp))
+                )
             }
+        }
+    }
+}
+
+@Composable
+private fun ChildCategoryChip(
+    name: String,
+    defaultAccountName: String?,
+    showDelete: Boolean,
+    dimmed: Boolean,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+    onDragStart: (Offset) -> Unit = {},
+    onDrag: (Offset) -> Unit = {},
+    onDragEnd: () -> Unit = {},
+    onDragCancel: () -> Unit = {}
+) {
+    var chipCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    val latestOnDragStart by rememberUpdatedState(onDragStart)
+    val latestOnDrag by rememberUpdatedState(onDrag)
+    val latestOnDragEnd by rememberUpdatedState(onDragEnd)
+    val latestOnDragCancel by rememberUpdatedState(onDragCancel)
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .alpha(if (dimmed) 0.35f else 1f)
+            .clip(RoundedCornerShape(999.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.outline,
+                RoundedCornerShape(999.dp)
+            )
+            .onGloballyPositioned { chipCoords = it }
+            .pointerInput(name) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { localOffset ->
+                        val coords = chipCoords ?: return@detectDragGesturesAfterLongPress
+                        latestOnDragStart(coords.localToWindow(localOffset))
+                    },
+                    onDrag = { change, _ ->
+                        change.consume()
+                        val coords = chipCoords ?: return@detectDragGesturesAfterLongPress
+                        latestOnDrag(coords.localToWindow(change.position))
+                    },
+                    onDragEnd = { latestOnDragEnd() },
+                    onDragCancel = { latestOnDragCancel() }
+                )
+            }
+            .clickable(onClick = onClick)
+            .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
+    ) {
+        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            if (defaultAccountName != null) {
+                Text(
+                    text = defaultAccountName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        if (showDelete) {
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "删除二级分类",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        } else {
+            Spacer(Modifier.width(8.dp))
         }
     }
 }

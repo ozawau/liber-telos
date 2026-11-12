@@ -124,6 +124,25 @@ interface TransactionDao {
     )
     fun observeInRange(startMs: Long, endMs: Long): Flow<List<Transaction>>
 
+    /**
+     * 将历史「余额变更 / 负债变更 / 账户余额调整」以及挂在受保护
+     * 「其他收入 / 其他支出」上的初始余额流水，改标为 BALANCE_ADJUSTMENT。
+     */
+    @Query(
+        """
+        UPDATE transactions SET type = 'BALANCE_ADJUSTMENT'
+        WHERE type IN ('INCOME', 'EXPENSE')
+          AND (
+            note IN ('余额变更', '负债变更', '账户余额调整')
+            OR categoryId IN (
+              SELECT id FROM categories
+              WHERE isProtected = 1 AND name IN ('其他收入', '其他支出')
+            )
+          )
+        """
+    )
+    suspend fun reclassifyBalanceAdjustments()
+
     @Query("SELECT * FROM transactions WHERE id = :id")
     suspend fun getById(id: Long): Transaction?
 

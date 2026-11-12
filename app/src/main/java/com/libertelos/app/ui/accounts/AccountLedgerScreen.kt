@@ -376,6 +376,8 @@ private fun AccountTxnRow(
             val leaf = item.linkedExpense?.category?.name
             if (leaf != null) "报销 · $leaf" else "报销"
         }
+        TxnType.BALANCE_ADJUSTMENT ->
+            txn.note.ifBlank { "余额变更" }
         else -> {
             item.category?.name
                 ?: item.parentCategory?.name
@@ -388,8 +390,11 @@ private fun AccountTxnRow(
             TxnType.REIMBURSEMENT -> add("报销")
             TxnType.EXPENSE -> add("支出")
             TxnType.INCOME -> add("收入")
+            TxnType.BALANCE_ADJUSTMENT -> add("不计入收支")
         }
-        if (txn.note.isNotBlank()) add(txn.note)
+        if (txn.type != TxnType.BALANCE_ADJUSTMENT && txn.note.isNotBlank()) {
+            add(txn.note)
+        }
         add(timeText)
     }.joinToString(" · ")
 
@@ -398,6 +403,7 @@ private fun AccountTxnRow(
         TxnType.INCOME -> AmberOut
         TxnType.TRANSFER -> TransferBlue
         TxnType.REIMBURSEMENT -> ReimburseAmber
+        TxnType.BALANCE_ADJUSTMENT -> Color(0xFF8A94A6)
     }
 
     Row(
@@ -552,6 +558,7 @@ private fun accountFlowDelta(
             txn.fromAccountId -> 0L to txn.amountCents
             else -> 0L to 0L
         }
+        TxnType.BALANCE_ADJUSTMENT -> 0L to 0L
     }
 }
 

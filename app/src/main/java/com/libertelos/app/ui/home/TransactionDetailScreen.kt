@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -118,11 +119,12 @@ fun TransactionDetailScreen(
             TxnType.INCOME -> SeaIn
             TxnType.TRANSFER -> TransferBlue
             TxnType.REIMBURSEMENT -> ReimburseAmber
+            TxnType.BALANCE_ADJUSTMENT -> Color(0xFF8A94A6)
         }
         val amountPrefix = when (txn.type) {
             TxnType.EXPENSE -> "-"
             TxnType.INCOME, TxnType.REIMBURSEMENT -> "+"
-            TxnType.TRANSFER -> ""
+            TxnType.TRANSFER, TxnType.BALANCE_ADJUSTMENT -> ""
         }
         val title = when (txn.type) {
             TxnType.TRANSFER -> {
@@ -141,6 +143,8 @@ fun TransactionDetailScreen(
                 }
                 "报销 · $target"
             }
+            TxnType.BALANCE_ADJUSTMENT ->
+                txn.note.ifBlank { "余额变更" }
             else -> {
                 val leaf = item.category?.name
                 val parent = item.parentCategory?.name
@@ -172,6 +176,7 @@ fun TransactionDetailScreen(
                         TxnType.INCOME -> "收入"
                         TxnType.TRANSFER -> "转账"
                         TxnType.REIMBURSEMENT -> "报销"
+                        TxnType.BALANCE_ADJUSTMENT -> "余额变更"
                     },
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -205,6 +210,10 @@ fun TransactionDetailScreen(
                             else -> "—"
                         }
                         DetailRow("原支出", linkedTitle)
+                    }
+                    TxnType.BALANCE_ADJUSTMENT -> {
+                        DetailRow("账户", item.account?.name ?: "—")
+                        DetailRow("说明", "不计入收入/支出")
                     }
                     else -> {
                         DetailRow("分类", title)

@@ -52,6 +52,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** 关闭并清空单例，供切换数据目录后重建。 */
+        fun closeAndClear() {
+            synchronized(this) {
+                instance?.close()
+                instance = null
+            }
+        }
+
         private fun build(context: Context): AppDatabase {
             LedgerStorage.migrateFromLegacyIfNeeded(context)
             val dbFile = LedgerStorage.databaseFile(context)

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,15 +35,21 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.libertelos.app.data.IncomeExpenseReport
@@ -53,6 +61,10 @@ import com.libertelos.app.ui.theme.AmberOut
 import com.libertelos.app.ui.theme.InkTeal
 import com.libertelos.app.ui.theme.SeaIn
 import com.libertelos.app.viewmodel.LedgerViewModel
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 @Composable
 fun HomeScreen(
@@ -61,6 +73,7 @@ fun HomeScreen(
     onLedger: () -> Unit,
     onStats: () -> Unit,
     onAccounts: () -> Unit,
+    onSettings: () -> Unit,
     onCategoryLedger: (categoryId: Long, type: TxnType, period: ReportPeriod) -> Unit
 ) {
     val report by viewModel.incomeExpenseReport.collectAsStateWithLifecycle()
@@ -68,6 +81,9 @@ fun HomeScreen(
     val allDetails by viewModel.allTransactionDetails.collectAsStateWithLifecycle()
     var balancePeriod by remember { mutableStateOf(ReportPeriod.YEAR) }
     var rankingType by remember { mutableStateOf(TxnType.EXPENSE) }
+    var swipeOffsetX by remember { mutableFloatStateOf(0f) }
+    val latestOnLedger by rememberUpdatedState(onLedger)
+    val latestOnAccounts by rememberUpdatedState(onAccounts)
     val balanceSummary = remember(report, balancePeriod) {
         report.summaryFor(balancePeriod)
     }
@@ -88,8 +104,51 @@ fun HomeScreen(
                     )
                 )
                 .padding(padding)
+                .pointerInput(Unit) {
+                    val touchSlop = viewConfiguration.touchSlop
+                    val navigateThreshold = size.width * 0.22f
+                    val maxPull = size.width * 0.38f
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        var totalX = 0f
+                        var totalY = 0f
+                        var lockedHorizontal = false
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull() ?: break
+                            if (!change.pressed) break
+                            val delta = change.positionChange()
+                            totalX += delta.x
+                            totalY += delta.y
+                            if (!lockedHorizontal) {
+                                if (abs(totalX) > touchSlop || abs(totalY) > touchSlop) {
+                                    if (abs(totalX) > abs(totalY) * 1.2f) {
+                                        lockedHorizontal = true
+                                    } else {
+                                        // 纵向滚动交给 LazyColumn
+                                        break
+                                    }
+                                }
+                            }
+                            if (lockedHorizontal) {
+                                change.consume()
+                                swipeOffsetX = totalX.coerceIn(-maxPull, maxPull)
+                            }
+                        }
+                        if (lockedHorizontal) {
+                            when {
+                                totalX >= navigateThreshold -> latestOnLedger()
+                                totalX <= -navigateThreshold -> latestOnAccounts()
+                            }
+                        }
+                        swipeOffsetX = 0f
+                    }
+                }
         ) {
             LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .offset { IntOffset(swipeOffsetX.roundToInt(), 0) },
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -121,6 +180,11 @@ fun HomeScreen(
                                 Icon(Icons.Default.BarChart, contentDescription = null)
                                 Spacer(Modifier.width(4.dp))
                                 Text("统计")
+                            }
+                            TextButton(onClick = onSettings) {
+                                Icon(Icons.Default.Settings, contentDescription = null)
+                                Spacer(Modifier.width(4.dp))
+                                Text("设置")
                             }
                         }
                     }

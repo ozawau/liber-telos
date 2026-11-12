@@ -13,6 +13,9 @@ interface CategoryDao {
     @Query("SELECT * FROM categories ORDER BY type, sortOrder, id")
     fun observeAll(): Flow<List<Category>>
 
+    @Query("SELECT * FROM categories ORDER BY type, sortOrder, id")
+    suspend fun listAll(): List<Category>
+
     @Query("SELECT * FROM categories WHERE type = :type ORDER BY sortOrder, id")
     fun observeByType(type: TxnType): Flow<List<Category>>
 
@@ -45,6 +48,9 @@ interface CategoryDao {
 
     @Query("DELETE FROM categories WHERE parentId = :parentId")
     suspend fun deleteChildren(parentId: Long)
+
+    @Query("DELETE FROM categories")
+    suspend fun deleteAll()
 
     @Query("SELECT * FROM categories WHERE id = :id")
     suspend fun getById(id: Long): Category?
@@ -85,6 +91,9 @@ interface AccountDao {
     @Query("SELECT * FROM accounts ORDER BY kind, createdAt")
     fun observeAll(): Flow<List<Account>>
 
+    @Query("SELECT * FROM accounts ORDER BY kind, createdAt")
+    suspend fun listAll(): List<Account>
+
     @Query("SELECT * FROM accounts WHERE hidden = 0 ORDER BY kind, createdAt")
     fun observeVisible(): Flow<List<Account>>
 
@@ -108,12 +117,18 @@ interface AccountDao {
 
     @Delete
     suspend fun delete(account: Account)
+
+    @Query("DELETE FROM accounts")
+    suspend fun deleteAll()
 }
 
 @Dao
 interface TransactionDao {
     @Query("SELECT * FROM transactions ORDER BY occurredAt DESC")
     fun observeAll(): Flow<List<Transaction>>
+
+    @Query("SELECT * FROM transactions ORDER BY occurredAt DESC")
+    suspend fun listAll(): List<Transaction>
 
     @Query(
         """
@@ -146,14 +161,20 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE id = :id")
     suspend fun getById(id: Long): Transaction?
 
-    @Insert
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(transaction: Transaction): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(transactions: List<Transaction>)
 
     @Update
     suspend fun update(transaction: Transaction)
 
     @Delete
     suspend fun delete(transaction: Transaction)
+
+    @Query("DELETE FROM transactions")
+    suspend fun deleteAll()
 
     @Query(
         """

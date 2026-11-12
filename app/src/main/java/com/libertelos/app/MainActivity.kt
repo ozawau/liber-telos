@@ -26,6 +26,7 @@ import com.libertelos.app.ui.home.CategoryLedgerScreen
 import com.libertelos.app.ui.home.HomeScreen
 import com.libertelos.app.ui.home.TransactionDetailScreen
 import com.libertelos.app.ui.home.TransactionListScreen
+import com.libertelos.app.ui.settings.SettingsScreen
 import com.libertelos.app.ui.stats.StatsScreen
 import com.libertelos.app.ui.theme.LiberTelosTheme
 import com.libertelos.app.viewmodel.LedgerViewModel
@@ -65,11 +66,18 @@ private fun LiberTelosNav(app: LiberTelosApp) {
                 onLedger = { navController.navigate("ledger") },
                 onStats = { navController.navigate("stats") },
                 onAccounts = { navController.navigate("accounts") },
+                onSettings = { navController.navigate("settings") },
                 onCategoryLedger = { categoryId, type, period ->
                     navController.navigate(
                         "category_ledger/$categoryId/${type.name}/${period.name}"
                     )
                 }
+            )
+        }
+        composable("settings") {
+            SettingsScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() }
             )
         }
         composable("ledger") {

@@ -22,6 +22,27 @@ class LedgerRepository(
 
     suspend fun getAccount(id: Long): Account? = accountDao.getById(id)
 
+    suspend fun exportSnapshot(): ExportBundle = ExportBundle(
+        accounts = accountDao.listAll(),
+        categories = categoryDao.listAll(),
+        transactions = transactionDao.listAll()
+    )
+
+    /**
+     * 全量覆盖导入：先清空流水/账户/分类，再按导出包写回（保留原 id）。
+     */
+    suspend fun importBundle(bundle: ExportBundle) {
+        transactionDao.deleteAll()
+        accountDao.deleteAll()
+        categoryDao.deleteAll()
+        val parents = bundle.categories.filter { it.parentId == null }.sortedBy { it.id }
+        val children = bundle.categories.filter { it.parentId != null }.sortedBy { it.id }
+        if (parents.isNotEmpty()) categoryDao.insertAll(parents)
+        if (children.isNotEmpty()) categoryDao.insertAll(children)
+        if (bundle.accounts.isNotEmpty()) accountDao.insertAll(bundle.accounts)
+        if (bundle.transactions.isNotEmpty()) transactionDao.insertAll(bundle.transactions)
+    }
+
     suspend fun upsertAccount(
         account: Account,
         createBalanceAdjustment: Boolean = false,

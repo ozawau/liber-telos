@@ -8,6 +8,7 @@ import com.libertelos.app.data.AccountKind
 import com.libertelos.app.data.Category
 import com.libertelos.app.data.CategoryRanking
 import com.libertelos.app.data.CategorySpend
+import com.libertelos.app.data.ExportBundle
 import com.libertelos.app.data.IncomeExpenseReport
 import com.libertelos.app.data.LedgerRepository
 import com.libertelos.app.data.MonthSummary
@@ -335,6 +336,12 @@ class LedgerViewModel(
             runCatching { repository.deleteCategory(category) }
                 .onFailure { onError(it.message ?: "删除失败") }
         }
+    }
+
+    suspend fun exportSnapshot() = repository.exportSnapshot()
+
+    suspend fun importBundle(bundle: ExportBundle) {
+        repository.importBundle(bundle)
     }
 
     class Factory(private val repository: LedgerRepository) : ViewModelProvider.Factory {

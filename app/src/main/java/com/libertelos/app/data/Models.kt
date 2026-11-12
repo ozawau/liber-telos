@@ -3,7 +3,14 @@ package com.libertelos.app.data
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-enum class TxnType { EXPENSE, INCOME, TRANSFER, REIMBURSEMENT }
+enum class TxnType {
+    EXPENSE,
+    INCOME,
+    TRANSFER,
+    REIMBURSEMENT,
+    /** 账户初始余额 / 手动改余额，不计入收入支出 */
+    BALANCE_ADJUSTMENT
+}
 
 enum class AccountKind(val label: String) {
     CASH("现金账户"),

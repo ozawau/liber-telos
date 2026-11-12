@@ -67,6 +67,9 @@ class LedgerViewModel(
         details: List<TransactionWithDetails> = allTransactionDetails.value
     ): CategoryRanking = repository.buildCategoryRanking(details, period, type)
 
+    fun periodRange(period: ReportPeriod): Pair<Long, Long> =
+        repository.periodRange(period)
+
     val transactions: StateFlow<List<TransactionWithDetails>> = _month
         .flatMapLatest { repository.observeMonthTransactions(it.year, it.month) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -135,6 +138,7 @@ class LedgerViewModel(
                 val max = maxReimbursableCents ?: return
                 if (cents > max) return
             }
+            TxnType.BALANCE_ADJUSTMENT -> return
         }
         viewModelScope.launch {
             val resolvedCategoryId = when (type) {
@@ -312,6 +316,13 @@ class LedgerViewModel(
         if (trimmed.isEmpty() || !category.isLeaf) return
         viewModelScope.launch {
             repository.updateChildCategory(category, trimmed, defaultAccountId)
+        }
+    }
+
+    fun moveChildCategory(category: Category, newParentId: Long) {
+        if (!category.isLeaf || category.parentId == newParentId) return
+        viewModelScope.launch {
+            runCatching { repository.moveChildCategory(category, newParentId) }
         }
     }
 

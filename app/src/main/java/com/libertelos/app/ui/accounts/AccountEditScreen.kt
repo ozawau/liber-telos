@@ -364,7 +364,7 @@ fun AccountEditScreen(
                             style = MaterialTheme.typography.titleMedium
                         )
                         Text(
-                            text = "余额增加记「其他收入」，减少记「损失 · 其他支出」",
+                            text = "将记一笔「余额变更」流水，不计入收入/支出",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

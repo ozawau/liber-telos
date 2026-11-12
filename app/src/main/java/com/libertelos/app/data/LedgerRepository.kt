@@ -43,39 +43,27 @@ class LedgerRepository(
     }
 
     private suspend fun createBalanceAdjustmentTransaction(accountId: Long, deltaCents: Long) {
-        // 账户余额已由 upsertAccount 直接写入，这里只补流水，不再次改余额
+        // 账户余额已由 upsertAccount 直接写入；流水仅作记录，不改余额、不计入收支
         val now = System.currentTimeMillis()
-        if (deltaCents > 0) {
-            val category = categoryDao.getProtectedLeaf(TxnType.INCOME)
+        val category = if (deltaCents > 0) {
+            categoryDao.getProtectedLeaf(TxnType.INCOME)
                 ?: error("缺少受保护分类：其他收入")
-            transactionDao.insert(
-                Transaction(
-                    amountCents = deltaCents,
-                    type = TxnType.INCOME,
-                    categoryId = category.id,
-                    accountId = accountId,
-                    note = "账户余额调整",
-                    occurredAt = now,
-                    createdAt = now,
-                    updatedAt = now
-                )
-            )
         } else {
-            val category = categoryDao.getProtectedLeaf(TxnType.EXPENSE)
+            categoryDao.getProtectedLeaf(TxnType.EXPENSE)
                 ?: error("缺少受保护分类：其他支出")
-            transactionDao.insert(
-                Transaction(
-                    amountCents = -deltaCents,
-                    type = TxnType.EXPENSE,
-                    categoryId = category.id,
-                    accountId = accountId,
-                    note = "账户余额调整",
-                    occurredAt = now,
-                    createdAt = now,
-                    updatedAt = now
-                )
-            )
         }
+        transactionDao.insert(
+            Transaction(
+                amountCents = kotlin.math.abs(deltaCents),
+                type = TxnType.BALANCE_ADJUSTMENT,
+                categoryId = category.id,
+                accountId = accountId,
+                note = "账户余额调整",
+                occurredAt = now,
+                createdAt = now,
+                updatedAt = now
+            )
+        )
     }
 
     private fun isLiability(kind: AccountKind): Boolean =
@@ -99,6 +87,8 @@ class LedgerRepository(
                 asTo -> if (liability) -amountCents else amountCents
                 else -> 0L
             }
+            // 余额已由账户字段直接写入，流水本身不再驱动余额
+            TxnType.BALANCE_ADJUSTMENT -> 0L
         }
     }
 
@@ -138,6 +128,7 @@ class LedgerRepository(
                     adjustAccountBalance(to.id, delta)
                 }
             }
+            TxnType.BALANCE_ADJUSTMENT -> Unit
         }
     }
 
@@ -235,6 +226,27 @@ class LedgerRepository(
             category.copy(
                 name = trimmed,
                 defaultAccountId = defaultAccountId
+            )
+        )
+    }
+
+    /**
+     * 将二级分类挪到另一个一级分类下。
+     * 只改 categories.parentId（及排序/外观），流水仍引用原 categoryId，无需同步。
+     */
+    suspend fun moveChildCategory(category: Category, newParentId: Long) {
+        require(category.isLeaf)
+        if (category.parentId == newParentId) return
+        val parent = categoryDao.getById(newParentId) ?: error("parent missing")
+        require(parent.isParent)
+        require(parent.type == category.type)
+        val sort = categoryDao.maxChildSortOrder(newParentId) + 1
+        categoryDao.update(
+            category.copy(
+                parentId = newParentId,
+                sortOrder = sort,
+                iconKey = parent.iconKey,
+                colorArgb = parent.colorArgb
             )
         )
     }
@@ -397,7 +409,7 @@ class LedgerRepository(
                 TxnType.INCOME -> incomeByBucket[index] += txn.amountCents
                 TxnType.EXPENSE -> expenseByBucket[index] += txn.amountCents
                 TxnType.REIMBURSEMENT -> reimbursementByBucket[index] += txn.amountCents
-                TxnType.TRANSFER -> Unit
+                TxnType.TRANSFER, TxnType.BALANCE_ADJUSTMENT -> Unit
             }
         }
         return buckets.mapIndexed { index, bucket ->
@@ -425,7 +437,7 @@ class LedgerRepository(
                 TxnType.INCOME -> income += txn.amountCents
                 TxnType.EXPENSE -> expense += txn.amountCents
                 TxnType.REIMBURSEMENT -> reimbursement += txn.amountCents
-                TxnType.TRANSFER -> Unit
+                TxnType.TRANSFER, TxnType.BALANCE_ADJUSTMENT -> Unit
             }
         }
         return MonthSummary(
@@ -524,8 +536,15 @@ class LedgerRepository(
             accountDao.observeAll(),
             transactionDao.observeAll()
         ) { txns, categories, accounts, allTxns ->
-            enrich(txns, categories, accounts, allTxns)
+            // 月流水只展示真实收支/转账/报销；余额变更留在账户流水里
+            val incomeExpense = txns.filter { it.type != TxnType.BALANCE_ADJUSTMENT }
+            enrich(incomeExpense, categories, accounts, allTxns)
         }
+    }
+
+    /** 一次性：历史初始余额 / 余额调整流水改为 BALANCE_ADJUSTMENT */
+    suspend fun migrateBalanceAdjustments() {
+        transactionDao.reclassifyBalanceAdjustments()
     }
 
     fun observeReimbursableExpenses(): Flow<List<ReimbursableExpense>> {

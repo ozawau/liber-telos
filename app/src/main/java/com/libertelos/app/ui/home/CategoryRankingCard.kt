@@ -2,8 +2,6 @@ package com.libertelos.app.ui.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,7 +17,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,7 +34,8 @@ import java.util.Locale
 @Composable
 fun CategoryRankingCard(
     ranking: CategoryRanking,
-    onToggleType: () -> Unit,
+    onTypeChange: (TxnType) -> Unit,
+    onCategoryClick: (CategoryRankItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isExpense = ranking.type == TxnType.EXPENSE
@@ -60,25 +58,28 @@ fun CategoryRankingCard(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onToggleType
-                    )
-                    .padding(vertical = 2.dp),
+                modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(Modifier.width(8.dp))
+            RankingTypeToggle(
+                selected = ranking.type,
+                onTypeChange = onTypeChange
+            )
+        }
+
+        Spacer(Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
                 text = "记账笔数 ${ranking.txnCount}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.weight(1f))
             Text(
                 text = "总$typeLabel ${formatAmountPlain(ranking.totalCents)}",
                 style = MaterialTheme.typography.labelMedium,
@@ -101,7 +102,8 @@ fun CategoryRankingCard(
             ranking.items.forEachIndexed { index, item ->
                 CategoryRankRow(
                     rank = index + 1,
-                    item = item
+                    item = item,
+                    onClick = { onCategoryClick(item) }
                 )
                 if (index != ranking.items.lastIndex) {
                     Spacer(Modifier.height(16.dp))
@@ -112,9 +114,48 @@ fun CategoryRankingCard(
 }
 
 @Composable
-private fun CategoryRankRow(rank: Int, item: CategoryRankItem) {
+private fun RankingTypeToggle(
+    selected: TxnType,
+    onTypeChange: (TxnType) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color(0xFFF0F3F7))
+            .padding(2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        listOf(TxnType.EXPENSE to "支出", TxnType.INCOME to "收入").forEach { (type, label) ->
+            val isSelected = type == selected
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isSelected) Color(0xFF0D4F4F) else Color(0xFF8A94A6),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(if (isSelected) Color.White else Color.Transparent)
+                    .clickable { onTypeChange(type) }
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun CategoryRankRow(
+    rank: Int,
+    item: CategoryRankItem,
+    onClick: () -> Unit
+) {
     val color = Color(item.category.colorArgb)
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 2.dp)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically

@@ -381,13 +381,14 @@ def main() -> None:
                 fr_a = money_to_cents(t.get("from_amount") or 0)
                 delta = to_a - fr_a if t.get("to_amount") is not None else raw
                 if delta >= 0:
-                    typ, cid, use_amt = "INCOME", protected_income, abs(delta) or abs(raw)
+                    cid, use_amt = protected_income, abs(delta) or abs(raw)
                 else:
-                    typ, cid, use_amt = "EXPENSE", protected_expense, abs(delta)
+                    cid, use_amt = protected_expense, abs(delta)
                 n = note or "余额变更"
             else:
-                typ, cid, use_amt, n = "EXPENSE", protected_expense, abs(raw), note or "负债变更"
-            insert_row(use_amt, typ, cid, aid, None, None, n)
+                cid, use_amt, n = protected_expense, abs(raw), note or "负债变更"
+            # 初始余额 / 负债变更：不计入收入支出
+            insert_row(use_amt, "BALANCE_ADJUSTMENT", cid, aid, None, None, n)
         elif bt == "Refund":
             if amt == 0:
                 skipped += 1

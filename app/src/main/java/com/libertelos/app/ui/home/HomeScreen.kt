@@ -60,7 +60,8 @@ fun HomeScreen(
     onAdd: () -> Unit,
     onLedger: () -> Unit,
     onStats: () -> Unit,
-    onAccounts: () -> Unit
+    onAccounts: () -> Unit,
+    onCategoryLedger: (categoryId: Long, type: TxnType, period: ReportPeriod) -> Unit
 ) {
     val report by viewModel.incomeExpenseReport.collectAsStateWithLifecycle()
     val allTransactions by viewModel.allTransactions.collectAsStateWithLifecycle()
@@ -140,12 +141,13 @@ fun HomeScreen(
                 item {
                     CategoryRankingCard(
                         ranking = categoryRanking,
-                        onToggleType = {
-                            rankingType = if (rankingType == TxnType.EXPENSE) {
-                                TxnType.INCOME
-                            } else {
-                                TxnType.EXPENSE
-                            }
+                        onTypeChange = { rankingType = it },
+                        onCategoryClick = { item ->
+                            onCategoryLedger(
+                                item.category.id,
+                                categoryRanking.type,
+                                categoryRanking.period
+                            )
                         }
                     )
                 }

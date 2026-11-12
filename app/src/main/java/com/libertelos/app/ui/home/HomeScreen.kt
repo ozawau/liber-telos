@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -181,10 +182,11 @@ fun HomeScreen(
                                 Spacer(Modifier.width(4.dp))
                                 Text("统计")
                             }
-                            TextButton(onClick = onSettings) {
-                                Icon(Icons.Default.Settings, contentDescription = null)
-                                Spacer(Modifier.width(4.dp))
-                                Text("设置")
+                            IconButton(onClick = onSettings) {
+                                Icon(
+                                    Icons.Default.Settings,
+                                    contentDescription = "设置"
+                                )
                             }
                         }
                     }

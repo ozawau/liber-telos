@@ -13,8 +13,8 @@ android {
         applicationId = "com.libertelos.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     buildTypes {
@@ -24,6 +24,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // 本地/侧载正式包：使用 debug 签名，便于 adb 安装
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

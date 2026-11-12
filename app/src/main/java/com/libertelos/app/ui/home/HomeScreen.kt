@@ -75,7 +75,8 @@ fun HomeScreen(
     onStats: () -> Unit,
     onAccounts: () -> Unit,
     onSettings: () -> Unit,
-    onCategoryLedger: (categoryId: Long, type: TxnType, period: ReportPeriod) -> Unit
+    onCategoryLedger: (categoryId: Long, type: TxnType, period: ReportPeriod) -> Unit,
+    onPeriodLedger: (ReportPeriod) -> Unit
 ) {
     val report by viewModel.incomeExpenseReport.collectAsStateWithLifecycle()
     val allTransactions by viewModel.allTransactions.collectAsStateWithLifecycle()
@@ -228,13 +229,25 @@ fun HomeScreen(
                 }
 
                 item {
-                    PeriodReportCard(title = "今天", summary = report.today)
+                    PeriodReportCard(
+                        title = "今天",
+                        summary = report.today,
+                        onClick = { onPeriodLedger(ReportPeriod.DAY) }
+                    )
                 }
                 item {
-                    PeriodReportCard(title = "本周", summary = report.week)
+                    PeriodReportCard(
+                        title = "本周",
+                        summary = report.week,
+                        onClick = { onPeriodLedger(ReportPeriod.WEEK) }
+                    )
                 }
                 item {
-                    PeriodReportCard(title = "本月", summary = report.month)
+                    PeriodReportCard(
+                        title = "本月",
+                        summary = report.month,
+                        onClick = { onPeriodLedger(ReportPeriod.MONTH) }
+                    )
                 }
 
                 item { Spacer(Modifier.height(88.dp)) }
@@ -361,12 +374,17 @@ private fun SummaryPanel(
 }
 
 @Composable
-private fun PeriodReportCard(title: String, summary: MonthSummary) {
+private fun PeriodReportCard(
+    title: String,
+    summary: MonthSummary,
+    onClick: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surface)
+            .clickable(onClick = onClick)
             .padding(16.dp)
     ) {
         Text(

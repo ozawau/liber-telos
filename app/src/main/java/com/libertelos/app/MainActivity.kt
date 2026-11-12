@@ -18,14 +18,14 @@ import androidx.navigation.navArgument
 import com.libertelos.app.data.ReportPeriod
 import com.libertelos.app.data.TxnType
 import com.libertelos.app.ui.accounts.AccountEditScreen
-import com.libertelos.app.ui.accounts.AccountLedgerScreen
 import com.libertelos.app.ui.accounts.AccountsScreen
 import com.libertelos.app.ui.add.AddScreen
 import com.libertelos.app.ui.categories.CategoryEditScreen
-import com.libertelos.app.ui.home.CategoryLedgerScreen
 import com.libertelos.app.ui.home.HomeScreen
 import com.libertelos.app.ui.home.TransactionDetailScreen
-import com.libertelos.app.ui.home.TransactionListScreen
+import com.libertelos.app.ui.ledger.LedgerFilter
+import com.libertelos.app.ui.ledger.LedgerScreen
+import com.libertelos.app.ui.ledger.LedgerTimeScope
 import com.libertelos.app.ui.settings.SettingsScreen
 import com.libertelos.app.ui.stats.StatsScreen
 import com.libertelos.app.ui.theme.LiberTelosTheme
@@ -69,8 +69,17 @@ private fun LiberTelosNav(app: LiberTelosApp) {
                 onSettings = { navController.navigate("settings") },
                 onCategoryLedger = { categoryId, type, period ->
                     navController.navigate(
-                        "category_ledger/$categoryId/${type.name}/${period.name}"
+                        "ledger?categoryId=$categoryId&type=${type.name}&period=${period.name}"
                     )
+                },
+                onPeriodLedger = { period ->
+                    val route = when (period) {
+                        ReportPeriod.YEAR -> "ledger?timeScope=YEAR"
+                        ReportPeriod.MONTH -> "ledger?timeScope=MONTH"
+                        ReportPeriod.WEEK, ReportPeriod.DAY ->
+                            "ledger?timeScope=PERIOD&period=${period.name}"
+                    }
+                    navController.navigate(route)
                 }
             )
         }
@@ -80,35 +89,61 @@ private fun LiberTelosNav(app: LiberTelosApp) {
                 onBack = { navController.popBackStack() }
             )
         }
-        composable("ledger") {
-            TransactionListScreen(
-                viewModel = viewModel,
-                onBack = { navController.popBackStack() },
-                onAdd = { navController.navigate("add") },
-                onOpenTransaction = { id -> navController.navigate("txn_detail/$id") }
-            )
-        }
         composable(
-            route = "category_ledger/{categoryId}/{type}/{period}",
+            route = "ledger?accountId={accountId}&categoryId={categoryId}&type={type}&period={period}&timeScope={timeScope}",
             arguments = listOf(
-                navArgument("categoryId") { type = NavType.LongType },
-                navArgument("type") { type = NavType.StringType },
-                navArgument("period") { type = NavType.StringType }
+                navArgument("accountId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("categoryId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("type") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("period") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("timeScope") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
             )
         ) { entry ->
-            val categoryId = entry.arguments?.getLong("categoryId") ?: return@composable
-            val typeName = entry.arguments?.getString("type") ?: TxnType.EXPENSE.name
-            val periodName = entry.arguments?.getString("period") ?: ReportPeriod.MONTH.name
-            val type = runCatching { TxnType.valueOf(typeName) }.getOrDefault(TxnType.EXPENSE)
-            val period = runCatching { ReportPeriod.valueOf(periodName) }
-                .getOrDefault(ReportPeriod.MONTH)
-            CategoryLedgerScreen(
+            val filter = ledgerFilterFromArgs(
+                accountId = entry.arguments?.getString("accountId"),
+                categoryId = entry.arguments?.getString("categoryId"),
+                typeName = entry.arguments?.getString("type"),
+                periodName = entry.arguments?.getString("period"),
+                timeScopeName = entry.arguments?.getString("timeScope")
+            )
+            LedgerScreen(
                 viewModel = viewModel,
-                categoryId = categoryId,
-                type = type,
-                period = period,
+                initialFilter = filter,
                 onBack = { navController.popBackStack() },
-                onOpenTransaction = { id -> navController.navigate("txn_detail/$id") }
+                onAdd = { navController.navigate("add") },
+                onOpenTransaction = { id -> navController.navigate("txn_detail/$id") },
+                onEditAccount = { id -> navController.navigate("account_edit?id=$id") }
+            )
+        }
+        // 兼容旧深链 / 滑动入口简写
+        composable("ledger") {
+            LedgerScreen(
+                viewModel = viewModel,
+                initialFilter = LedgerFilter.homeDefault(),
+                onBack = { navController.popBackStack() },
+                onAdd = { navController.navigate("add") },
+                onOpenTransaction = { id -> navController.navigate("txn_detail/$id") },
+                onEditAccount = { id -> navController.navigate("account_edit?id=$id") }
             )
         }
         composable(
@@ -166,21 +201,10 @@ private fun LiberTelosNav(app: LiberTelosApp) {
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onCreate = { navController.navigate("account_edit") },
-                onOpen = { id -> navController.navigate("account_ledger/$id") },
+                onOpen = { id ->
+                    navController.navigate("ledger?accountId=$id&timeScope=ALL")
+                },
                 onEdit = { id -> navController.navigate("account_edit?id=$id") }
-            )
-        }
-        composable(
-            route = "account_ledger/{id}",
-            arguments = listOf(navArgument("id") { type = NavType.LongType })
-        ) { entry ->
-            val accountId = entry.arguments?.getLong("id") ?: return@composable
-            AccountLedgerScreen(
-                viewModel = viewModel,
-                accountId = accountId,
-                onBack = { navController.popBackStack() },
-                onEdit = { navController.navigate("account_edit?id=$accountId") },
-                onOpenTransaction = { id -> navController.navigate("txn_detail/$id") }
             )
         }
         composable(
@@ -201,5 +225,38 @@ private fun LiberTelosNav(app: LiberTelosApp) {
                 onBack = { navController.popBackStack() }
             )
         }
+    }
+}
+
+private fun ledgerFilterFromArgs(
+    accountId: String?,
+    categoryId: String?,
+    typeName: String?,
+    periodName: String?,
+    timeScopeName: String?
+): LedgerFilter {
+    val account = accountId?.toLongOrNull()
+    val category = categoryId?.toLongOrNull()
+    val type = typeName?.let { runCatching { TxnType.valueOf(it) }.getOrNull() }
+    val period = periodName?.let { runCatching { ReportPeriod.valueOf(it) }.getOrNull() }
+        ?: ReportPeriod.MONTH
+    val timeScope = timeScopeName?.let {
+        runCatching { LedgerTimeScope.valueOf(it) }.getOrNull()
+    }
+
+    return when {
+        account != null && category == null && type == null && timeScope == LedgerTimeScope.ALL ->
+            LedgerFilter.forAccount(account)
+        category != null && type != null ->
+            LedgerFilter.forCategory(category, type, period).let { base ->
+                if (account != null) base.copy(accountId = account) else base
+            }
+        else -> LedgerFilter.homeDefault().copy(
+            timeScope = timeScope ?: LedgerTimeScope.MONTH,
+            period = period,
+            accountId = account,
+            categoryId = category,
+            types = type?.let { setOf(it) } ?: LedgerFilter.allTypes
+        )
     }
 }

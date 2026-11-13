@@ -398,23 +398,34 @@ fun AddScreen(
     if (showDatePicker) {
         val cal = Calendar.getInstance().apply { timeInMillis = occurredAt }
         val state = rememberDatePickerState(initialSelectedDateMillis = occurredAt)
+        fun applyPickedDate(): Boolean {
+            val millis = state.selectedDateMillis ?: return false
+            val picked = Calendar.getInstance().apply { timeInMillis = millis }
+            cal.set(Calendar.YEAR, picked.get(Calendar.YEAR))
+            cal.set(Calendar.MONTH, picked.get(Calendar.MONTH))
+            cal.set(Calendar.DAY_OF_MONTH, picked.get(Calendar.DAY_OF_MONTH))
+            occurredAt = cal.timeInMillis
+            return true
+        }
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        val millis = state.selectedDateMillis
-                        if (millis != null) {
-                            val picked = Calendar.getInstance().apply { timeInMillis = millis }
-                            cal.set(Calendar.YEAR, picked.get(Calendar.YEAR))
-                            cal.set(Calendar.MONTH, picked.get(Calendar.MONTH))
-                            cal.set(Calendar.DAY_OF_MONTH, picked.get(Calendar.DAY_OF_MONTH))
-                            occurredAt = cal.timeInMillis
+                Row {
+                    // 只改日期，保留当前时分
+                    TextButton(
+                        onClick = {
+                            applyPickedDate()
+                            showDatePicker = false
                         }
-                        showDatePicker = false
-                        showTimePicker = true
-                    }
-                ) { Text("下一步") }
+                    ) { Text("确定") }
+                    TextButton(
+                        onClick = {
+                            applyPickedDate()
+                            showDatePicker = false
+                            showTimePicker = true
+                        }
+                    ) { Text("下一步") }
+                }
             },
             dismissButton = {
                 TextButton(onClick = { showDatePicker = false }) { Text("取消") }

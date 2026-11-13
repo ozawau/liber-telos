@@ -72,7 +72,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.libertelos.app.data.Account
 import com.libertelos.app.data.CategoryGroup
+import com.libertelos.app.data.CategoryAccountSuggest
+import com.libertelos.app.data.CategoryTimeSuggest
 import com.libertelos.app.data.DefaultCategories
+import com.libertelos.app.data.LedgerRepository
 import com.libertelos.app.data.ReimbursableExpense
 import com.libertelos.app.data.Transaction
 import com.libertelos.app.data.TxnType
@@ -105,6 +108,7 @@ fun AddScreen(
     val categories by viewModel.categories.collectAsStateWithLifecycle()
     val accounts by viewModel.visibleAccounts.collectAsStateWithLifecycle()
     val reimbursable by viewModel.reimbursableExpenses.collectAsStateWithLifecycle()
+    val allTransactions by viewModel.allTransactions.collectAsStateWithLifecycle()
 
     var type by remember { mutableStateOf(TxnType.EXPENSE) }
     var amount by remember { mutableStateOf("") }
@@ -118,6 +122,10 @@ fun AddScreen(
     var existing by remember { mutableStateOf<Transaction?>(null) }
     var loaded by remember { mutableStateOf(!isEdit) }
     var saving by remember { mutableStateOf(false) }
+    /** 用户手动选过分分类后，不再按时段自动覆盖 */
+    var categoryManual by remember { mutableStateOf(false) }
+    /** 用户手动选过账户后，切换分类不再自动改账户 */
+    var accountManual by remember { mutableStateOf(false) }
 
     var accountExpanded by remember { mutableStateOf(false) }
     var fromExpanded by remember { mutableStateOf(false) }
@@ -157,23 +165,89 @@ fun AddScreen(
                 toAccountId = txn.toAccountId
                 linkedExpenseId = txn.linkedTransactionId
                 occurredAt = txn.occurredAt
+                categoryManual = true
+                accountManual = true
             }
             loaded = true
         }
     }
 
-    LaunchedEffect(type) {
-        if (isEdit) return@LaunchedEffect
+    // 用户切换类型时清理不兼容字段，金额始终保留
+    var committedType by remember { mutableStateOf<TxnType?>(null) }
+    LaunchedEffect(type, loaded) {
+        if (!loaded) return@LaunchedEffect
+        val previous = committedType
+        committedType = type
+        if (previous == null || previous == type) return@LaunchedEffect
+
         selectedCategoryId = null
-        accountId = null
-        linkedExpenseId = null
-        // 切换类型时保留已填金额
-        lastReimburseAccountApplied = false
-        if (type == TxnType.REIMBURSEMENT) {
-            val lastId = viewModel.lastReimbursementAccountId()
-            if (lastId != null && accounts.any { it.id == lastId }) {
-                accountId = lastId
-                lastReimburseAccountApplied = true
+        categoryManual = false
+        if (type != TxnType.REIMBURSEMENT) {
+            linkedExpenseId = null
+        }
+        // 从余额调整改出时清掉系统备注，否则保存后仍像「余额调整」且会被启动迁移改回
+        if (previous == TxnType.BALANCE_ADJUSTMENT &&
+            note in LedgerRepository.balanceAdjustmentNotes
+        ) {
+            note = ""
+        }
+        when (type) {
+            TxnType.TRANSFER -> {
+                if (fromAccountId == null) fromAccountId = accountId
+                if (toAccountId == null) {
+                    toAccountId = accounts.firstOrNull { it.id != fromAccountId }?.id
+                }
+            }
+            TxnType.EXPENSE, TxnType.INCOME, TxnType.REIMBURSEMENT -> {
+                if (accountId == null) accountId = fromAccountId
+            }
+            TxnType.BALANCE_ADJUSTMENT -> Unit
+        }
+        if (!isEdit) {
+            accountId = null
+            accountManual = false
+            lastReimburseAccountApplied = false
+            if (type == TxnType.REIMBURSEMENT) {
+                val lastId = viewModel.lastReimbursementAccountId()
+                if (lastId != null && accounts.any { it.id == lastId }) {
+                    accountId = lastId
+                    accountManual = false
+                    lastReimburseAccountApplied = true
+                }
+            }
+        }
+    }
+
+    val visibleAccountIds = remember(accounts) { accounts.map { it.id }.toSet() }
+
+    // 新建：按时段推荐最常用分类，并自动填账户（默认账户或近 15 笔最常用）
+    LaunchedEffect(
+        loaded,
+        isEdit,
+        type,
+        occurredAt,
+        allTransactions,
+        leafCategories,
+        visibleAccountIds,
+        categoryManual
+    ) {
+        if (!loaded || isEdit || categoryManual) return@LaunchedEffect
+        if (type != TxnType.EXPENSE && type != TxnType.INCOME) return@LaunchedEffect
+        val suggestedId = CategoryTimeSuggest.mostUsedCategoryId(
+            type = type,
+            atMillis = occurredAt,
+            transactions = allTransactions
+        ) ?: return@LaunchedEffect
+        val category = leafCategories.firstOrNull { it.id == suggestedId } ?: return@LaunchedEffect
+        selectedCategoryId = category.id
+        if (!accountManual || accountId == null) {
+            CategoryAccountSuggest.resolveAccountId(
+                category = category,
+                transactions = allTransactions,
+                visibleAccountIds = visibleAccountIds
+            )?.let {
+                accountId = it
+                accountManual = false
             }
         }
     }
@@ -220,14 +294,18 @@ fun AddScreen(
         if (yuan != null && yuan > 0) Math.round(yuan * 100) else null
     }
 
-    val reimbursableForEdit = remember(reimbursable, existing, linkedExpenseId, amountCents) {
-        if (!isEdit || existing?.type != TxnType.REIMBURSEMENT) return@remember reimbursable
+    val reimbursableForEdit = remember(reimbursable, existing, linkedExpenseId, type) {
+        if (!isEdit || type != TxnType.REIMBURSEMENT) return@remember reimbursable
         val linkedId = linkedExpenseId ?: return@remember reimbursable
         val current = reimbursable.firstOrNull { it.details.transaction.id == linkedId }
-        if (current != null) {
-            // add back this record's amount into remaining ceiling
+        val editingReimbursement = existing
+        if (current != null && editingReimbursement?.type == TxnType.REIMBURSEMENT) {
+            // 编辑原报销单时，把本条已用额度加回可报销上限
             listOf(
-                current.copy(reimbursedCents = (current.reimbursedCents - existing!!.amountCents).coerceAtLeast(0))
+                current.copy(
+                    reimbursedCents = (current.reimbursedCents - editingReimbursement.amountCents)
+                        .coerceAtLeast(0)
+                )
             ) + reimbursable.filter { it.details.transaction.id != linkedId }
         } else {
             reimbursable
@@ -379,11 +457,17 @@ fun AddScreen(
             groups = categoryGroups,
             selectedId = selectedCategoryId,
             onSelect = { catId ->
+                categoryManual = true
                 selectedCategoryId = catId
-                if (accountId == null) {
-                    val defId = leafCategories.firstOrNull { it.id == catId }?.defaultAccountId
-                    if (defId != null && accounts.any { it.id == defId }) {
-                        accountId = defId
+                val category = leafCategories.firstOrNull { it.id == catId }
+                if (category != null && (!accountManual || accountId == null)) {
+                    CategoryAccountSuggest.resolveAccountId(
+                        category = category,
+                        transactions = allTransactions,
+                        visibleAccountIds = visibleAccountIds
+                    )?.let {
+                        accountId = it
+                        accountManual = false
                     }
                 }
                 showCategorySheet = false
@@ -437,7 +521,7 @@ fun AddScreen(
         ) {
             TypeToggle(
                 type = type,
-                enabled = !isEdit,
+                enabled = true,
                 onChange = { type = it }
             )
             Spacer(Modifier.height(20.dp))
@@ -498,7 +582,10 @@ fun AddScreen(
                         selectedId = accountId,
                         expanded = accountExpanded,
                         onExpandedChange = { accountExpanded = it },
-                        onSelect = { accountId = it },
+                        onSelect = {
+                            accountId = it
+                            accountManual = true
+                        },
                         placeholder = "请选择到账账户"
                     )
                 }
@@ -566,7 +653,10 @@ fun AddScreen(
                         selectedId = accountId,
                         expanded = accountExpanded,
                         onExpandedChange = { accountExpanded = it },
-                        onSelect = { accountId = it },
+                        onSelect = {
+                            accountId = it
+                            accountManual = true
+                        },
                         placeholder = "请选择账户"
                     )
                     if (accounts.isEmpty()) {

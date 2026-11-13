@@ -159,6 +159,7 @@ class LedgerViewModel(
                 repository.updateTransaction(
                     existing = existing,
                     amountCents = cents,
+                    type = type,
                     categoryId = resolvedCategoryId,
                     accountId = resolvedAccountId,
                     fromAccountId = resolvedFrom,

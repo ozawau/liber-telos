@@ -563,9 +563,14 @@ class LedgerRepository(
         }
     }
 
-    /** 一次性：历史初始余额 / 余额调整流水改为 BALANCE_ADJUSTMENT */
-    suspend fun migrateBalanceAdjustments() {
+    /**
+     * 一次性：历史初始余额 / 余额调整流水改为 BALANCE_ADJUSTMENT。
+     * 必须用偏好位卡住，否则每次冷启动都会把用户已改成收支的流水又改回去。
+     */
+    suspend fun migrateBalanceAdjustments(prefs: android.content.SharedPreferences) {
+        if (prefs.getBoolean(PREF_BA_RECLASSIFIED, false)) return
         transactionDao.reclassifyBalanceAdjustments()
+        prefs.edit().putBoolean(PREF_BA_RECLASSIFIED, true).commit()
     }
 
     fun observeReimbursableExpenses(): Flow<List<ReimbursableExpense>> {
@@ -666,6 +671,7 @@ class LedgerRepository(
     suspend fun updateTransaction(
         existing: Transaction,
         amountCents: Long,
+        type: TxnType,
         categoryId: Long?,
         accountId: Long?,
         fromAccountId: Long?,
@@ -674,28 +680,70 @@ class LedgerRepository(
         note: String,
         occurredAt: Long
     ) {
-        if (existing.type == TxnType.REIMBURSEMENT) {
+        require(type != TxnType.BALANCE_ADJUSTMENT) {
+            "cannot save as balance adjustment from editor"
+        }
+        if (type == TxnType.REIMBURSEMENT) {
             val expenseId = linkedTransactionId ?: error("reimbursement requires expense")
             require(amountCents > 0)
             val already = transactionDao.sumByLinked(TxnType.REIMBURSEMENT, expenseId) -
-                if (existing.linkedTransactionId == expenseId) existing.amountCents else 0L
+                if (existing.type == TxnType.REIMBURSEMENT &&
+                    existing.linkedTransactionId == expenseId
+                ) {
+                    existing.amountCents
+                } else {
+                    0L
+                }
             require(already >= 0)
         }
-        applyTransactionBalance(existing, sign = -1)
+        // 支出改成其他类型时，先清理挂在其上的报销流水
+        if (existing.type == TxnType.EXPENSE && type != TxnType.EXPENSE) {
+            val linked = transactionDao.listLinked(existing.id)
+            linked.forEach { applyTransactionBalance(it, sign = -1) }
+            transactionDao.deleteLinkedTo(existing.id)
+        }
+        if (existing.type == TxnType.BALANCE_ADJUSTMENT) {
+            // 余额调整曾直接写入账户余额；改类型前先冲回，再按新类型正常记账
+            undoBalanceAdjustmentRecord(existing)
+        } else {
+            applyTransactionBalance(existing, sign = -1)
+        }
+        // 改出余额调整时清掉系统备注，避免被历史 reclassify 条件再次命中
+        val savedNote =
+            if (existing.type == TxnType.BALANCE_ADJUSTMENT &&
+                note in balanceAdjustmentNotes
+            ) {
+                ""
+            } else {
+                note
+            }
         val updated = existing.copy(
+            type = type,
             amountCents = amountCents,
             categoryId = categoryId,
             accountId = accountId,
             fromAccountId = fromAccountId,
             toAccountId = toAccountId,
             linkedTransactionId = linkedTransactionId,
-            note = note,
+            note = savedNote,
             occurredAt = occurredAt,
             updatedAt = System.currentTimeMillis()
             // latitude / longitude / locationAddress intentionally unchanged
         )
         transactionDao.update(updated)
         applyTransactionBalance(updated, sign = 1)
+    }
+
+    /** 冲回「余额调整」流水对应的账户直接改额（金额绝对值 + 分类收支方向）。 */
+    private suspend fun undoBalanceAdjustmentRecord(txn: Transaction) {
+        if (txn.type != TxnType.BALANCE_ADJUSTMENT) return
+        val cat = txn.categoryId?.let { categoryDao.getById(it) } ?: return
+        val signed = when (cat.type) {
+            TxnType.INCOME -> txn.amountCents
+            TxnType.EXPENSE -> -txn.amountCents
+            else -> return
+        }
+        adjustAccountBalance(txn.accountId, -signed)
     }
 
     suspend fun deleteTransaction(transaction: Transaction) {
@@ -813,5 +861,8 @@ class LedgerRepository(
             }.timeInMillis
             return start to end
         }
+
+        const val PREF_BA_RECLASSIFIED = "ba_reclassified_v1"
+        val balanceAdjustmentNotes = setOf("余额变更", "负债变更", "账户余额调整")
     }
 }

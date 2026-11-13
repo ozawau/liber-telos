@@ -1,6 +1,7 @@
 package com.libertelos.app.data
 
 import android.content.Context
+import android.util.Log
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -8,6 +9,8 @@ import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.libertelos.app.security.DbKeyStore
+import com.libertelos.app.security.SqlCipherSupport
 
 class Converters {
     @TypeConverter
@@ -63,15 +66,36 @@ abstract class AppDatabase : RoomDatabase() {
         private fun build(context: Context): AppDatabase {
             LedgerStorage.migrateFromLegacyIfNeeded(context)
             val dbFile = LedgerStorage.databaseFile(context)
+            val keyStore = DbKeyStore(context)
+            SqlCipherSupport.loadLibs(context)
+            val dbKey = keyStore.getOrCreateDbKey()
+
+            // 旧明文库一次性迁移为 SQLCipher
+            if (SqlCipherSupport.needsEncryptionMigration(dbFile)) {
+                runCatching {
+                    SqlCipherSupport.migratePlaintextToEncrypted(context, dbFile, dbKey)
+                    keyStore.databaseEncrypted = true
+                    Log.i(TAG, "migrated plaintext ledger to SQLCipher")
+                }.onFailure {
+                    Log.e(TAG, "SQLCipher migration failed", it)
+                    throw it
+                }
+            } else {
+                keyStore.databaseEncrypted = true
+            }
+
             return Room.databaseBuilder(
                 context,
                 AppDatabase::class.java,
                 dbFile.absolutePath
             )
+                .openHelperFactory(SqlCipherSupport.supportFactory(dbKey))
                 .addMigrations(MIGRATION_8_9)
                 .fallbackToDestructiveMigration()
                 .build()
         }
+
+        private const val TAG = "AppDatabase"
     }
 }
 

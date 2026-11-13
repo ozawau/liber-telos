@@ -1,14 +1,26 @@
 package com.libertelos.app
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -17,6 +29,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.libertelos.app.data.ReportPeriod
 import com.libertelos.app.data.TxnType
+import com.libertelos.app.security.AppLockController
+import com.libertelos.app.security.SecurityPrefs
 import com.libertelos.app.ui.accounts.AccountEditScreen
 import com.libertelos.app.ui.accounts.AccountsScreen
 import com.libertelos.app.ui.add.AddScreen
@@ -26,20 +40,61 @@ import com.libertelos.app.ui.home.TransactionDetailScreen
 import com.libertelos.app.ui.ledger.LedgerFilter
 import com.libertelos.app.ui.ledger.LedgerScreen
 import com.libertelos.app.ui.ledger.LedgerTimeScope
+import com.libertelos.app.ui.security.LockScreen
+import com.libertelos.app.ui.security.SecuritySettingsScreen
+import com.libertelos.app.ui.settings.DataSettingsScreen
 import com.libertelos.app.ui.settings.SettingsScreen
 import com.libertelos.app.ui.stats.StatsScreen
 import com.libertelos.app.ui.theme.LiberTelosTheme
 import com.libertelos.app.viewmodel.LedgerViewModel
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as LiberTelosApp
         setContent {
             LiberTelosTheme {
-                LiberTelosNav(app)
+                AppLockGate {
+                    LiberTelosNav(app)
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun AppLockGate(content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { SecurityPrefs(context) }
+    var locked by remember {
+        mutableStateOf(AppLockController.needsUnlock(prefs))
+    }
+
+    DisposableEffect(Unit) {
+        val observer = object : DefaultLifecycleObserver {
+            override fun onStop(owner: LifecycleOwner) {
+                if (prefs.anyEnabled) {
+                    AppLockController.lock()
+                    locked = true
+                }
+            }
+        }
+        val lifecycle = ProcessLifecycleOwner.get().lifecycle
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        content()
+        if (locked) {
+            LockScreen(
+                prefs = prefs,
+                onUnlocked = {
+                    AppLockController.unlock()
+                    locked = false
+                }
+            )
         }
     }
 }
@@ -85,7 +140,19 @@ private fun LiberTelosNav(app: LiberTelosApp) {
         }
         composable("settings") {
             SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onDataSettings = { navController.navigate("settings/data") },
+                onSecuritySettings = { navController.navigate("settings/security") }
+            )
+        }
+        composable("settings/data") {
+            DataSettingsScreen(
                 viewModel = viewModel,
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable("settings/security") {
+            SecuritySettingsScreen(
                 onBack = { navController.popBackStack() }
             )
         }
@@ -135,7 +202,6 @@ private fun LiberTelosNav(app: LiberTelosApp) {
                 onEditAccount = { id -> navController.navigate("account_edit?id=$id") }
             )
         }
-        // 兼容旧深链 / 滑动入口简写
         composable("ledger") {
             LedgerScreen(
                 viewModel = viewModel,

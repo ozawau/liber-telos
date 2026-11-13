@@ -36,7 +36,9 @@ class LiberTelosApp : Application() {
                     accountDao = db.accountDao(),
                     transactionDao = db.transactionDao()
                 )
-                repository.migrateBalanceAdjustments()
+                repository.migrateBalanceAdjustments(
+                    getSharedPreferences("liber_telos_prefs", MODE_PRIVATE)
+                )
             }.onFailure {
                 android.util.Log.e("LiberTelosApp", "startup migration failed", it)
             }

@@ -84,7 +84,11 @@ fun AccountsScreen(
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
 
     val visibleAccounts = remember(accounts, showExcluded) {
-        if (showExcluded) accounts else accounts.filter { it.includeInTotal }
+        if (showExcluded) {
+            accounts
+        } else {
+            accounts.filter { it.includeInTotal && !it.hidden }
+        }
     }
     val grouped = remember(visibleAccounts) {
         visibleAccounts.groupBy { it.kind }
@@ -135,9 +139,9 @@ fun AccountsScreen(
                             imageVector = if (showExcluded) Icons.Default.Visibility
                             else Icons.Default.VisibilityOff,
                             contentDescription = if (showExcluded) {
-                                "隐藏不计入总账的账户"
+                                "隐藏已隐藏和不计入总账的账户"
                             } else {
-                                "显示不计入总账的账户"
+                                "显示已隐藏和不计入总账的账户"
                             }
                         )
                     }
@@ -169,7 +173,7 @@ fun AccountsScreen(
                     text = if (accounts.isEmpty()) {
                         "还没有账户，点右下角新建"
                     } else {
-                        "当前没有计入总账的账户\n点右上角可显示不计入总账的账户"
+                        "当前没有要显示的账户\n点右上角可显示隐藏账户和不计入总账的账户"
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

@@ -69,6 +69,10 @@ class LedgerViewModel(
         txns: List<Transaction> = allTransactions.value
     ): List<TrendPoint> = repository.buildStatsTrendSeries(txns, year, month)
 
+    fun allYearsTrendSeries(
+        txns: List<Transaction> = allTransactions.value
+    ): List<TrendPoint> = repository.buildAllYearsTrendSeries(txns)
+
     fun categoryRanking(
         period: ReportPeriod,
         type: TxnType,

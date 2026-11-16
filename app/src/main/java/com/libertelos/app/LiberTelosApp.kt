@@ -4,9 +4,13 @@ import android.app.Application
 import android.content.Intent
 import com.libertelos.app.data.AppDatabase
 import com.libertelos.app.data.CategoryMigrations
+import com.libertelos.app.data.ExpenseCategoryMerge
+import com.libertelos.app.data.IncomeCategoryMerge
+import com.libertelos.app.data.NoteEdits
 import com.libertelos.app.data.DefaultCategories
 import com.libertelos.app.data.LedgerRepository
 import com.libertelos.app.data.LedgerStorage
+import com.libertelos.app.data.TechlogHistoricalImporter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,6 +43,12 @@ class LiberTelosApp : Application() {
                 repository.migrateBalanceAdjustments(
                     getSharedPreferences("liber_telos_prefs", MODE_PRIVATE)
                 )
+                TechlogHistoricalImporter.run(this@LiberTelosApp)
+                TechlogHistoricalImporter.hideImportedAccounts(this@LiberTelosApp)
+                TechlogHistoricalImporter.zeroImportedAccounts(this@LiberTelosApp)
+                ExpenseCategoryMerge.run(this@LiberTelosApp)
+                IncomeCategoryMerge.run(this@LiberTelosApp)
+                NoteEdits.run(this@LiberTelosApp)
             }.onFailure {
                 android.util.Log.e("LiberTelosApp", "startup migration failed", it)
             }

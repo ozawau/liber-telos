@@ -467,28 +467,56 @@ class LedgerRepository(
         return fillTrendBuckets(txns, buckets, byCalendarMonth = month == null)
     }
 
+    /** 全部时间：从最早一笔到最晚一笔，每年一个点。 */
+    fun buildAllYearsTrendSeries(txns: List<Transaction>): List<TrendPoint> {
+        if (txns.isEmpty()) return emptyList()
+        val cal = Calendar.getInstance()
+        var minYear = Int.MAX_VALUE
+        var maxYear = Int.MIN_VALUE
+        txns.forEach { txn ->
+            cal.timeInMillis = txn.occurredAt
+            val year = cal.get(Calendar.YEAR)
+            if (year < minYear) minYear = year
+            if (year > maxYear) maxYear = year
+        }
+        if (minYear == Int.MAX_VALUE) return emptyList()
+        val buckets = (minYear..maxYear).map { year ->
+            val (start, end) = yearRange(year)
+            TrendBucket(start, end, "${year}年")
+        }
+        return fillTrendBuckets(txns, buckets, byCalendarYear = true)
+    }
+
     private fun fillTrendBuckets(
         txns: List<Transaction>,
         buckets: List<TrendBucket>,
-        byCalendarMonth: Boolean
+        byCalendarMonth: Boolean = false,
+        byCalendarYear: Boolean = false
     ): List<TrendPoint> {
         if (buckets.isEmpty()) return emptyList()
         val rangeStart = buckets.first().startMs
         val rangeEnd = buckets.last().endMs
+        val startYear = Calendar.getInstance().apply { timeInMillis = rangeStart }
+            .get(Calendar.YEAR)
         val incomeByBucket = LongArray(buckets.size)
         val expenseByBucket = LongArray(buckets.size)
         val reimbursementByBucket = LongArray(buckets.size)
         txns.forEach { txn ->
             if (txn.occurredAt < rangeStart || txn.occurredAt >= rangeEnd) return@forEach
-            val index = if (byCalendarMonth) {
-                Calendar.getInstance().apply { timeInMillis = txn.occurredAt }
-                    .get(Calendar.MONTH)
-                    .coerceIn(0, buckets.lastIndex)
-            } else {
-                val span = (buckets[0].endMs - buckets[0].startMs).coerceAtLeast(1L)
-                val day = ((txn.occurredAt - rangeStart) / span).toInt()
-                day.coerceIn(0, buckets.lastIndex)
-            }
+            val index = when {
+                byCalendarYear -> {
+                    Calendar.getInstance().apply { timeInMillis = txn.occurredAt }
+                        .get(Calendar.YEAR) - startYear
+                }
+                byCalendarMonth -> {
+                    Calendar.getInstance().apply { timeInMillis = txn.occurredAt }
+                        .get(Calendar.MONTH)
+                }
+                else -> {
+                    val span = (buckets[0].endMs - buckets[0].startMs).coerceAtLeast(1L)
+                    ((txn.occurredAt - rangeStart) / span).toInt()
+                }
+            }.coerceIn(0, buckets.lastIndex)
             when (txn.type) {
                 TxnType.INCOME -> incomeByBucket[index] += txn.amountCents
                 TxnType.EXPENSE -> expenseByBucket[index] += txn.amountCents

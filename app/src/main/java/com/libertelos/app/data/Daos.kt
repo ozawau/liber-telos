@@ -198,6 +198,12 @@ interface TransactionDao {
     @Query("DELETE FROM transactions WHERE linkedTransactionId = :linkedId")
     suspend fun deleteLinkedTo(linkedId: Long)
 
+    @Query("SELECT * FROM transactions WHERE categoryId = :categoryId")
+    suspend fun listByCategory(categoryId: Long): List<Transaction>
+
+    @Query("SELECT COUNT(*) FROM transactions WHERE categoryId = :categoryId")
+    suspend fun countByCategory(categoryId: Long): Int
+
     @Query("UPDATE transactions SET categoryId = :toId WHERE categoryId = :fromId")
     suspend fun reassignCategory(fromId: Long, toId: Long)
 

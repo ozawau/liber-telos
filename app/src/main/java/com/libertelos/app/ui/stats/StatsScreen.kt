@@ -75,10 +75,6 @@ private data class StatsPeriod(
     val year: Int,
     val month: Int
 ) {
-    init {
-        require(scope == LedgerTimeScope.MONTH || scope == LedgerTimeScope.YEAR)
-    }
-
     fun shift(delta: Int): StatsPeriod = when (scope) {
         LedgerTimeScope.MONTH -> {
             val cal = Calendar.getInstance().apply {
@@ -92,18 +88,21 @@ private data class StatsPeriod(
                 month = cal.get(Calendar.MONTH) + 1
             )
         }
-        else -> copy(year = year + delta)
+        LedgerTimeScope.YEAR -> copy(year = year + delta)
+        else -> this
     }
 
     fun range(): Pair<Long, Long> = when (scope) {
         LedgerTimeScope.MONTH -> LedgerRepository.monthRange(year, month)
-        else -> LedgerRepository.yearRange(year)
+        LedgerTimeScope.YEAR -> LedgerRepository.yearRange(year)
+        else -> 0L to Long.MAX_VALUE
     }
 
     val label: String
         get() = when (scope) {
             LedgerTimeScope.MONTH -> "${year}年${month}月"
-            else -> "${year}年"
+            LedgerTimeScope.YEAR -> "${year}年"
+            else -> "全部"
         }
 }
 
@@ -127,7 +126,7 @@ fun StatsScreen(
     }
     var showPeriodPicker by remember { mutableStateOf(false) }
 
-    if (showPeriodPicker) {
+    if (showPeriodPicker && period.scope != LedgerTimeScope.ALL) {
         if (period.scope == LedgerTimeScope.MONTH) {
             PeriodPickerDialog(
                 mode = PeriodPickMode.YEAR_MONTH,
@@ -178,11 +177,16 @@ fun StatsScreen(
         viewModel.categoryBreakdown(startMs, endMs, TxnType.EXPENSE, details)
     }
     val trendPoints = remember(details, period) {
-        viewModel.statsTrendSeries(
-            year = period.year,
-            month = if (period.scope == LedgerTimeScope.MONTH) period.month else null,
-            txns = details.map { it.transaction }
-        )
+        val txns = details.map { it.transaction }
+        if (period.scope == LedgerTimeScope.ALL) {
+            viewModel.allYearsTrendSeries(txns)
+        } else {
+            viewModel.statsTrendSeries(
+                year = period.year,
+                month = if (period.scope == LedgerTimeScope.MONTH) period.month else null,
+                txns = txns
+            )
+        }
     }
     val assetShares = remember(accounts) { buildAccountShares(accounts, liability = false) }
     val liabilityShares = remember(accounts) { buildAccountShares(accounts, liability = true) }
@@ -220,14 +224,28 @@ fun StatsScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
-                PeriodNavRow(
-                    label = period.label,
-                    onPrev = { period = period.shift(-1) },
-                    onNext = { period = period.shift(1) },
-                    onPickPeriod = { showPeriodPicker = true },
-                    prevDesc = if (period.scope == LedgerTimeScope.MONTH) "上月" else "上一年",
-                    nextDesc = if (period.scope == LedgerTimeScope.MONTH) "下月" else "下一年"
-                )
+                if (period.scope == LedgerTimeScope.ALL) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "全部",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(vertical = 6.dp)
+                        )
+                    }
+                } else {
+                    PeriodNavRow(
+                        label = period.label,
+                        onPrev = { period = period.shift(-1) },
+                        onNext = { period = period.shift(1) },
+                        onPickPeriod = { showPeriodPicker = true },
+                        prevDesc = if (period.scope == LedgerTimeScope.MONTH) "上月" else "上一年",
+                        nextDesc = if (period.scope == LedgerTimeScope.MONTH) "下月" else "下一年"
+                    )
+                }
             }
 
             item {
@@ -265,11 +283,12 @@ fun StatsScreen(
             item {
                 IncomeExpenseTrendChart(
                     points = trendPoints,
-                    title = if (period.scope == LedgerTimeScope.YEAR) {
-                        "月度收支趋势"
-                    } else {
-                        "每日收支趋势"
-                    }
+                    title = when (period.scope) {
+                        LedgerTimeScope.YEAR -> "月度收支趋势"
+                        LedgerTimeScope.ALL -> "历年收支趋势"
+                        else -> "每日收支趋势"
+                    },
+                    showAxisLabels = period.scope == LedgerTimeScope.ALL
                 )
             }
 
@@ -304,7 +323,11 @@ private fun ScopeToggle(
             .padding(2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        listOf(LedgerTimeScope.MONTH to "按月", LedgerTimeScope.YEAR to "按年").forEach { (value, label) ->
+        listOf(
+            LedgerTimeScope.MONTH to "按月",
+            LedgerTimeScope.YEAR to "按年",
+            LedgerTimeScope.ALL to "全部"
+        ).forEach { (value, label) ->
             val selected = scope == value
             Text(
                 text = label,
@@ -315,7 +338,7 @@ private fun ScopeToggle(
                     .clip(RoundedCornerShape(999.dp))
                     .background(if (selected) Color.White else Color.Transparent)
                     .clickable { onScopeChange(value) }
-                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                    .padding(horizontal = 8.dp, vertical = 5.dp)
             )
         }
     }

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.libertelos.app.data.Account
 import com.libertelos.app.data.AccountKind
 import com.libertelos.app.data.Category
+import com.libertelos.app.data.CategoryBreakdown
 import com.libertelos.app.data.CategoryRanking
 import com.libertelos.app.data.CategorySpend
 import com.libertelos.app.data.ExportBundle
@@ -62,11 +63,24 @@ class LedgerViewModel(
     fun trendSeries(period: ReportPeriod, txns: List<Transaction> = allTransactions.value): List<TrendPoint> =
         repository.buildTrendSeries(txns, period)
 
+    fun statsTrendSeries(
+        year: Int,
+        month: Int?,
+        txns: List<Transaction> = allTransactions.value
+    ): List<TrendPoint> = repository.buildStatsTrendSeries(txns, year, month)
+
     fun categoryRanking(
         period: ReportPeriod,
         type: TxnType,
         details: List<TransactionWithDetails> = allTransactionDetails.value
     ): CategoryRanking = repository.buildCategoryRanking(details, period, type)
+
+    fun categoryBreakdown(
+        startMs: Long,
+        endMs: Long,
+        type: TxnType,
+        details: List<TransactionWithDetails> = allTransactionDetails.value
+    ): CategoryBreakdown = repository.buildCategoryBreakdown(details, startMs, endMs, type)
 
     fun periodRange(period: ReportPeriod): Pair<Long, Long> =
         repository.periodRange(period)

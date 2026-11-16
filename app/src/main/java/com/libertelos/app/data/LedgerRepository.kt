@@ -356,6 +356,24 @@ class LedgerRepository(
     ): CategoryRanking {
         require(type == TxnType.INCOME || type == TxnType.EXPENSE)
         val (start, end) = periodRange(period, now)
+        val breakdown = buildCategoryBreakdown(details, start, end, type)
+        return CategoryRanking(
+            type = type,
+            period = period,
+            txnCount = breakdown.txnCount,
+            totalCents = breakdown.totalCents,
+            items = breakdown.items.take(limit)
+        )
+    }
+
+    /** 指定区间内一级分类占比（收入或支出，支出已扣报销）。 */
+    fun buildCategoryBreakdown(
+        details: List<TransactionWithDetails>,
+        startMs: Long,
+        endMs: Long,
+        type: TxnType
+    ): CategoryBreakdown {
+        require(type == TxnType.INCOME || type == TxnType.EXPENSE)
         val reimbursedByExpense = details
             .filter { it.transaction.type == TxnType.REIMBURSEMENT }
             .groupBy { it.transaction.linkedTransactionId }
@@ -363,34 +381,63 @@ class LedgerRepository(
 
         val inRange = details.filter { item ->
             val t = item.transaction
-            t.occurredAt >= start && t.occurredAt < end && t.type == type && item.category != null
+            t.occurredAt >= startMs && t.occurredAt < endMs && t.type == type && item.category != null
         }
+
+        fun amountOf(item: TransactionWithDetails): Long = when (type) {
+            TxnType.EXPENSE -> {
+                val reimbursed = reimbursedByExpense[item.transaction.id] ?: 0L
+                (item.transaction.amountCents - reimbursed).coerceAtLeast(0)
+            }
+            else -> item.transaction.amountCents
+        }
+
+        data class ChildAgg(val category: Category, val cents: Long, val count: Int)
 
         val grouped = inRange.groupBy { item -> item.parentCategory ?: item.category!! }
-        val ranked = grouped.map { (category, list) ->
-            val total = when (type) {
-                TxnType.EXPENSE -> list.sumOf { item ->
-                    val reimbursed = reimbursedByExpense[item.transaction.id] ?: 0L
-                    (item.transaction.amountCents - reimbursed).coerceAtLeast(0)
+        val ranked = grouped.map { (parent, list) ->
+            val parentTotal = list.sumOf { amountOf(it) }
+            val parentCount = list.count { amountOf(it) > 0 }
+            val children = list
+                .groupBy { it.category!! }
+                .map { (leaf, leafList) ->
+                    ChildAgg(
+                        category = leaf,
+                        cents = leafList.sumOf { amountOf(it) },
+                        count = leafList.count { amountOf(it) > 0 }
+                    )
                 }
-                else -> list.sumOf { it.transaction.amountCents }
-            }
-            category to total
+                .filter { it.cents > 0 }
+                .sortedByDescending { it.cents }
+            Triple(parent, parentTotal to parentCount, children)
         }
-            .filter { it.second > 0 }
-            .sortedByDescending { it.second }
+            .filter { it.second.first > 0 }
+            .sortedByDescending { it.second.first }
 
-        val totalCents = ranked.sumOf { it.second }
-        val items = ranked.take(limit).map { (category, cents) ->
+        val totalCents = ranked.sumOf { it.second.first }
+        val items = ranked.map { (parent, parentAgg, children) ->
+            val (parentCents, parentCount) = parentAgg
             CategoryRankItem(
-                category = category,
-                totalCents = cents,
-                ratio = if (totalCents > 0) cents.toFloat() / totalCents.toFloat() else 0f
+                category = parent,
+                totalCents = parentCents,
+                ratio = if (totalCents > 0) parentCents.toFloat() / totalCents.toFloat() else 0f,
+                txnCount = parentCount,
+                children = children.map { child ->
+                    CategoryRankItem(
+                        category = child.category,
+                        totalCents = child.cents,
+                        ratio = if (parentCents > 0) {
+                            child.cents.toFloat() / parentCents.toFloat()
+                        } else {
+                            0f
+                        },
+                        txnCount = child.count
+                    )
+                }
             )
         }
-        return CategoryRanking(
+        return CategoryBreakdown(
             type = type,
-            period = period,
             txnCount = inRange.size,
             totalCents = totalCents,
             items = items
@@ -401,8 +448,30 @@ class LedgerRepository(
         txns: List<Transaction>,
         period: ReportPeriod,
         now: Long = System.currentTimeMillis()
+    ): List<TrendPoint> = fillTrendBuckets(txns, trendBuckets(period, now), byCalendarMonth = period == ReportPeriod.YEAR)
+
+    /** 年视图按月、月视图按日的收支趋势。 */
+    fun buildStatsTrendSeries(
+        txns: List<Transaction>,
+        year: Int,
+        month: Int?
     ): List<TrendPoint> {
-        val buckets = trendBuckets(period, now)
+        val dayFmt = java.text.SimpleDateFormat("d日", Locale.CHINA)
+        val buckets = if (month == null) {
+            val (start, end) = yearRange(year)
+            buildMonthlyBuckets(start, end)
+        } else {
+            val (start, end) = monthRange(year, month)
+            buildDailyBuckets(start, end, dayFmt)
+        }
+        return fillTrendBuckets(txns, buckets, byCalendarMonth = month == null)
+    }
+
+    private fun fillTrendBuckets(
+        txns: List<Transaction>,
+        buckets: List<TrendBucket>,
+        byCalendarMonth: Boolean
+    ): List<TrendPoint> {
         if (buckets.isEmpty()) return emptyList()
         val rangeStart = buckets.first().startMs
         val rangeEnd = buckets.last().endMs
@@ -411,20 +480,14 @@ class LedgerRepository(
         val reimbursementByBucket = LongArray(buckets.size)
         txns.forEach { txn ->
             if (txn.occurredAt < rangeStart || txn.occurredAt >= rangeEnd) return@forEach
-            val index = when (period) {
-                ReportPeriod.DAY -> {
-                    val hour = ((txn.occurredAt - rangeStart) / HOUR_MS).toInt()
-                    hour.coerceIn(0, buckets.lastIndex)
-                }
-                ReportPeriod.YEAR -> {
-                    Calendar.getInstance().apply { timeInMillis = txn.occurredAt }
-                        .get(Calendar.MONTH)
-                        .coerceIn(0, buckets.lastIndex)
-                }
-                else -> {
-                    val day = ((txn.occurredAt - rangeStart) / DAY_MS).toInt()
-                    day.coerceIn(0, buckets.lastIndex)
-                }
+            val index = if (byCalendarMonth) {
+                Calendar.getInstance().apply { timeInMillis = txn.occurredAt }
+                    .get(Calendar.MONTH)
+                    .coerceIn(0, buckets.lastIndex)
+            } else {
+                val span = (buckets[0].endMs - buckets[0].startMs).coerceAtLeast(1L)
+                val day = ((txn.occurredAt - rangeStart) / span).toInt()
+                day.coerceIn(0, buckets.lastIndex)
             }
             when (txn.type) {
                 TxnType.INCOME -> incomeByBucket[index] += txn.amountCents
@@ -851,21 +914,23 @@ class LedgerRepository(
             return monthRange(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1)
         }
 
-        fun thisYearRange(now: Long = System.currentTimeMillis()): Pair<Long, Long> {
+        fun yearRange(year: Int): Pair<Long, Long> {
             val start = Calendar.getInstance().apply {
-                timeInMillis = now
+                clear()
+                set(Calendar.YEAR, year)
                 set(Calendar.MONTH, Calendar.JANUARY)
                 set(Calendar.DAY_OF_MONTH, 1)
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
             }.timeInMillis
             val end = Calendar.getInstance().apply {
                 timeInMillis = start
                 add(Calendar.YEAR, 1)
             }.timeInMillis
             return start to end
+        }
+
+        fun thisYearRange(now: Long = System.currentTimeMillis()): Pair<Long, Long> {
+            val cal = Calendar.getInstance().apply { timeInMillis = now }
+            return yearRange(cal.get(Calendar.YEAR))
         }
 
         const val PREF_BA_RECLASSIFIED = "ba_reclassified_v1"

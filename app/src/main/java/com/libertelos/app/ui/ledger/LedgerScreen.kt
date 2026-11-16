@@ -74,6 +74,8 @@ import com.libertelos.app.data.Transaction
 import com.libertelos.app.data.TransactionWithDetails
 import com.libertelos.app.data.TxnType
 import com.libertelos.app.ui.components.AccountIconBadge
+import com.libertelos.app.ui.components.PeriodPickMode
+import com.libertelos.app.ui.components.PeriodPickerDialog
 import com.libertelos.app.ui.components.formatYuanPlain
 import com.libertelos.app.ui.theme.AmberOut
 import com.libertelos.app.ui.theme.InkTeal
@@ -121,6 +123,7 @@ fun LedgerScreen(
     val categories by viewModel.categories.collectAsStateWithLifecycle()
     var filter by remember { mutableStateOf(initialFilter) }
     var showFilters by remember { mutableStateOf(false) }
+    var showPeriodPicker by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<Transaction?>(null) }
     var account by remember { mutableStateOf<Account?>(null) }
     val filterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -163,6 +166,36 @@ fun LedgerScreen(
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) { Text("取消") }
             }
+        )
+    }
+
+    if (showPeriodPicker && filter.timeScope == LedgerTimeScope.MONTH) {
+        PeriodPickerDialog(
+            mode = PeriodPickMode.YEAR_MONTH,
+            initialYear = filter.year,
+            initialMonth = filter.month,
+            onConfirm = { year, month ->
+                filter = filter.copy(
+                    timeScope = LedgerTimeScope.MONTH,
+                    year = year,
+                    month = month
+                )
+                showPeriodPicker = false
+            },
+            onDismiss = { showPeriodPicker = false }
+        )
+    } else if (showPeriodPicker && filter.timeScope == LedgerTimeScope.YEAR) {
+        PeriodPickerDialog(
+            mode = PeriodPickMode.YEAR,
+            initialYear = filter.year,
+            onConfirm = { year, _ ->
+                filter = filter.copy(
+                    timeScope = LedgerTimeScope.YEAR,
+                    year = year
+                )
+                showPeriodPicker = false
+            },
+            onDismiss = { showPeriodPicker = false }
         )
     }
 
@@ -240,7 +273,14 @@ fun LedgerScreen(
                     onPrevMonth = { filter = filter.shiftMonth(-1) },
                     onNextMonth = { filter = filter.shiftMonth(1) },
                     onPrevYear = { filter = filter.shiftYear(-1) },
-                    onNextYear = { filter = filter.shiftYear(1) }
+                    onNextYear = { filter = filter.shiftYear(1) },
+                    onPickPeriod = {
+                        if (filter.timeScope == LedgerTimeScope.MONTH ||
+                            filter.timeScope == LedgerTimeScope.YEAR
+                        ) {
+                            showPeriodPicker = true
+                        }
+                    }
                 )
             }
 
@@ -494,7 +534,8 @@ private fun SummaryHeader(
     onPrevMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onPrevYear: () -> Unit,
-    onNextYear: () -> Unit
+    onNextYear: () -> Unit,
+    onPickPeriod: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -526,6 +567,7 @@ private fun SummaryHeader(
                     expenseCents = expenseCents,
                     onPrev = onPrevMonth,
                     onNext = onNextMonth,
+                    onPickPeriod = onPickPeriod,
                     prevDesc = "上月",
                     nextDesc = "下月"
                 )
@@ -538,6 +580,7 @@ private fun SummaryHeader(
                     expenseCents = expenseCents,
                     onPrev = onPrevYear,
                     onNext = onNextYear,
+                    onPickPeriod = onPickPeriod,
                     prevDesc = "上一年",
                     nextDesc = "下一年"
                 )
@@ -588,6 +631,7 @@ private fun PeriodNavHeader(
     expenseCents: Long,
     onPrev: () -> Unit,
     onNext: () -> Unit,
+    onPickPeriod: () -> Unit,
     prevDesc: String,
     nextDesc: String
 ) {
@@ -598,7 +642,13 @@ private fun PeriodNavHeader(
         IconButton(onClick = onPrev) {
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = prevDesc)
         }
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(onClick = onPickPeriod)
+                .padding(vertical = 4.dp)
+        ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.headlineMedium,

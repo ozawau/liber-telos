@@ -143,8 +143,12 @@ data class TrendPoint(
 data class CategoryRankItem(
     val category: Category,
     val totalCents: Long,
-    /** 占总收入/总支出的比例，0~1 */
-    val ratio: Float
+    /** 占总收入/总支出的比例，0~1；子分类则为占父分类的比例 */
+    val ratio: Float,
+    /** 该分类下有金额贡献的记账笔数 */
+    val txnCount: Int = 0,
+    /** 一级分类下的子分类统计；叶子项为空 */
+    val children: List<CategoryRankItem> = emptyList()
 )
 
 data class CategoryRanking(
@@ -153,6 +157,20 @@ data class CategoryRanking(
     val txnCount: Int,
     val totalCents: Long,
     val items: List<CategoryRankItem>
+)
+
+/** 统计页：指定区间内的分类占比（不限 Top N） */
+data class CategoryBreakdown(
+    val type: TxnType,
+    val txnCount: Int,
+    val totalCents: Long,
+    val items: List<CategoryRankItem>
+)
+
+data class AccountShareItem(
+    val account: Account,
+    val amountCents: Long,
+    val ratio: Float
 )
 
 data class AccountIconSpec(

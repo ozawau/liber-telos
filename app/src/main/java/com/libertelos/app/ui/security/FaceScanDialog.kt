@@ -1,8 +1,12 @@
 package com.libertelos.app.ui.security
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import android.view.Surface
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -57,6 +61,7 @@ import com.libertelos.app.security.FaceSample
 import com.libertelos.app.security.FaceTemplate
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * 面容采集。[template] 为空时录入本人；非空时只有几何特征对上才算通过。
@@ -105,16 +110,20 @@ fun SilentFaceScanner(
         } else {
             val analysisExecutor = Executors.newSingleThreadExecutor()
             val finished = AtomicBoolean(false)
+            val busy = AtomicBoolean(false)
+            val extraRotation = AtomicInteger(0)
+            val rotationLocked = AtomicBoolean(false)
             val samples = mutableListOf<FaceSample>()
             var matchStreak = 0
             var misses = 0
             val enrolling = template == null
             val detector = FaceDetection.getClient(
                 FaceDetectorOptions.Builder()
-                    .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                    .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+                    .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
                     .setContourMode(FaceDetectorOptions.CONTOUR_MODE_ALL)
                     .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
-                    .setMinFaceSize(0.12f)
+                    .setMinFaceSize(0.1f)
                     .build()
             )
             val mainExecutor = ContextCompat.getMainExecutor(context)
@@ -129,26 +138,36 @@ fun SilentFaceScanner(
                     return@addListener
                 }
                 cameraProvider = provider
+                val rotation = displayRotation(previewView, context)
                 val preview = previewView?.let { view ->
-                    Preview.Builder().build().also { it.setSurfaceProvider(view.surfaceProvider) }
+                    Preview.Builder()
+                        .setTargetRotation(rotation)
+                        .build()
+                        .also { it.setSurfaceProvider(view.surfaceProvider) }
                 }
                 val analysis = ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .setTargetRotation(rotation)
+                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                     .build()
                 analysis.setAnalyzer(analysisExecutor) { proxy ->
-                    if (finished.get()) {
+                    if (finished.get() || !busy.compareAndSet(false, true)) {
                         proxy.close()
                         return@setAnalyzer
                     }
-                    val mediaImage = proxy.image
-                    if (mediaImage == null) {
-                        proxy.close()
+                    val captured = runCatching { proxy.toBitmap() }.getOrNull()
+                    proxy.close()
+                    if (captured == null) {
+                        busy.set(false)
+                        mainExecutor.execute {
+                            if (enrolling) latestStatus("请将脸放入人像框")
+                        }
                         return@setAnalyzer
                     }
-                    val image = InputImage.fromMediaImage(
-                        mediaImage,
-                        proxy.imageInfo.rotationDegrees
-                    )
+                    val extra = extraRotation.get()
+                    val upright = rotateBitmap(captured, extra)
+                    if (upright !== captured) captured.recycle()
+                    val image = InputImage.fromBitmap(upright, 0)
                     detector.process(image)
                         .addOnSuccessListener(mainExecutor) { faces ->
                             if (finished.get()) return@addOnSuccessListener
@@ -157,8 +176,11 @@ fun SilentFaceScanner(
                                 box.width() * box.height()
                             }
                             if (face == null) {
+                                if (!rotationLocked.get()) {
+                                    extraRotation.set((extra + 90) % 360)
+                                }
                                 misses += 1
-                                if (misses >= 4) {
+                                if (misses >= 6) {
                                     samples.clear()
                                     matchStreak = 0
                                     if (enrolling) latestProgress(0)
@@ -167,6 +189,7 @@ fun SilentFaceScanner(
                                 latestStatus(if (enrolling) "请将脸放入人像框" else "请面向设备")
                                 return@addOnSuccessListener
                             }
+                            rotationLocked.set(true)
                             misses = 0
                             when (val read = FaceGeometry.read(face)) {
                                 is FaceRead.Reject -> {
@@ -199,8 +222,12 @@ fun SilentFaceScanner(
                         }
                         .addOnFailureListener(mainExecutor) {
                             matchStreak = 0
+                            if (enrolling) latestStatus("请将脸放入人像框")
                         }
-                        .addOnCompleteListener { proxy.close() }
+                        .addOnCompleteListener {
+                            upright.recycle()
+                            busy.set(false)
+                        }
                 }
                 runCatching {
                     provider.unbindAll()
@@ -392,8 +419,8 @@ private fun acceptEnrollmentSample(
     if (samples.isNotEmpty()) {
         val ratioMean = FaceGeometry.mean(samples.map { it.ratios })
         val contourMean = FaceGeometry.mean(samples.map { it.contours })
-        val drifted = FaceGeometry.l2(sample.ratios, ratioMean) > 0.28f ||
-            FaceGeometry.l2(sample.contours, contourMean) > 0.85f
+        val drifted = FaceGeometry.l2(sample.ratios, ratioMean) > 0.4f ||
+            FaceGeometry.l2(sample.contours, contourMean) > 1.15f
         if (drifted) {
             samples.clear()
             samples.add(sample)
@@ -414,6 +441,22 @@ private fun acceptEnrollmentSample(
         return
     }
     if (finished.compareAndSet(false, true)) onEnrolled(template)
+}
+
+private fun displayRotation(previewView: PreviewView?, context: Context): Int {
+    previewView?.display?.rotation?.let { return it }
+    val activity = context as? Activity
+    if (android.os.Build.VERSION.SDK_INT >= 30) {
+        activity?.display?.rotation?.let { return it }
+    }
+    return Surface.ROTATION_0
+}
+
+private fun rotateBitmap(source: Bitmap, degrees: Int): Bitmap {
+    val normalized = ((degrees % 360) + 360) % 360
+    if (normalized == 0) return source
+    val matrix = Matrix().apply { postRotate(normalized.toFloat()) }
+    return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
 }
 
 private fun hasCameraPermission(context: Context): Boolean =

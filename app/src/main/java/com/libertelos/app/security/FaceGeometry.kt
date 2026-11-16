@@ -3,6 +3,7 @@ package com.libertelos.app.security
 import android.graphics.PointF
 import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceContour
+import com.google.mlkit.vision.face.FaceLandmark
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -48,7 +49,7 @@ data class FaceTemplate(
             val contourMean = FaceGeometry.mean(samples.map { it.contours })
             val ratioSpread = samples.maxOf { FaceGeometry.l2(it.ratios, ratioMean) }
             val contourSpread = samples.maxOf { FaceGeometry.l2(it.contours, contourMean) }
-            if (ratioSpread > 0.30f || contourSpread > 0.95f) return null
+            if (ratioSpread > 0.42f || contourSpread > 1.25f) return null
             return FaceTemplate(
                 ratios = ratioMean,
                 ratioLimit = (ratioSpread * 3.2f).coerceIn(0.34f, 0.48f),
@@ -109,12 +110,12 @@ object FaceGeometry {
             return FaceRead.Reject("请睁眼")
         }
 
-        val leftEye = points(face, FaceContour.LEFT_EYE) ?: return FaceRead.Reject("请将脸放入人像框")
-        val rightEye = points(face, FaceContour.RIGHT_EYE) ?: return FaceRead.Reject("请将脸放入人像框")
+        val leftEye = points(face, FaceContour.LEFT_EYE) ?: return FaceRead.Reject("请靠近一些")
+        val rightEye = points(face, FaceContour.RIGHT_EYE) ?: return FaceRead.Reject("请靠近一些")
         val leftCenter = centroid(leftEye)
         val rightCenter = centroid(rightEye)
         val eyeDist = distance(leftCenter, rightCenter)
-        if (eyeDist < 20f) return FaceRead.Reject("请靠近一些")
+        if (eyeDist < 12f) return FaceRead.Reject("请靠近一些")
 
         val originX = (leftCenter.x + rightCenter.x) / 2f
         val originY = (leftCenter.y + rightCenter.y) / 2f
@@ -132,11 +133,11 @@ object FaceGeometry {
 
         val faceOval = points(face, FaceContour.FACE)?.map(::norm)
         val noseBottom = points(face, FaceContour.NOSE_BOTTOM)?.map(::norm)
-            ?: return FaceRead.Reject("请将脸放入人像框")
+            ?: return FaceRead.Reject("请靠近一些")
         val upperLip = points(face, FaceContour.UPPER_LIP_TOP)?.map(::norm)
-            ?: return FaceRead.Reject("请将脸放入人像框")
+            ?: return FaceRead.Reject("请靠近一些")
         val lowerLip = points(face, FaceContour.LOWER_LIP_BOTTOM)?.map(::norm)
-            ?: return FaceRead.Reject("请将脸放入人像框")
+            ?: return FaceRead.Reject("请靠近一些")
         val leftBrow = points(face, FaceContour.LEFT_EYEBROW_BOTTOM)?.map(::norm)
             ?: points(face, FaceContour.LEFT_EYEBROW_TOP)?.map(::norm)
         val rightBrow = points(face, FaceContour.RIGHT_EYEBROW_BOTTOM)?.map(::norm)
@@ -157,7 +158,7 @@ object FaceGeometry {
             leftCheek = leftCheek,
             rightCheek = rightCheek,
             faceOval = faceOval
-        ) ?: return FaceRead.Reject("请将脸放入人像框")
+        ) ?: return FaceRead.Reject("请靠近一些")
 
         val contours = FloatArray(contourSpec.sumOf { it.second * 2 })
         var offset = 0
@@ -170,7 +171,7 @@ object FaceGeometry {
                 type == FaceContour.NOSE_BRIDGE -> noseBottom
                 type == FaceContour.LEFT_EYEBROW_TOP && leftBrow != null -> leftBrow
                 type == FaceContour.RIGHT_EYEBROW_TOP && rightBrow != null -> rightBrow
-                else -> return FaceRead.Reject("请将脸放入人像框")
+                else -> return FaceRead.Reject("请靠近一些")
             }
             for (p in resample(normalized, count)) {
                 contours[offset++] = p.x
@@ -219,7 +220,7 @@ object FaceGeometry {
             faceOval != null -> spanX(faceOval)
             else -> return null
         }
-        if (faceWidth < 0.4f) return null
+        if (faceWidth < 0.15f) return null
         val faceHeight = faceOval?.let { spanY(it) } ?: 0f
         val jawWidth = faceOval?.let { lowerWidth(it) } ?: faceWidth * 0.75f
         val nose = centroid(noseBottom)
@@ -248,7 +249,56 @@ object FaceGeometry {
     }
 
     private fun points(face: Face, type: Int): List<PointF>? =
-        face.getContour(type)?.points?.takeIf { it.size >= 2 }
+        face.getContour(type)?.points?.takeIf { it.size >= 2 } ?: landmarkPoints(face, type)
+
+    /** 轮廓缺失时，用关键点铺一圈，保证录入不会因为机型不回轮廓而停住。 */
+    private fun landmarkPoints(face: Face, type: Int): List<PointF>? {
+        val radius = (face.boundingBox.width() * 0.05f).coerceAtLeast(4f)
+        fun around(point: PointF?): List<PointF>? = point?.let { ring(it, radius) }
+        return when (type) {
+            FaceContour.LEFT_EYE -> around(landmark(face, FaceLandmark.LEFT_EYE))
+            FaceContour.RIGHT_EYE -> around(landmark(face, FaceLandmark.RIGHT_EYE))
+            FaceContour.LEFT_EYEBROW_TOP, FaceContour.LEFT_EYEBROW_BOTTOM ->
+                landmark(face, FaceLandmark.LEFT_EYE)?.let { ring(PointF(it.x, it.y - radius * 2), radius) }
+            FaceContour.RIGHT_EYEBROW_TOP, FaceContour.RIGHT_EYEBROW_BOTTOM ->
+                landmark(face, FaceLandmark.RIGHT_EYE)?.let { ring(PointF(it.x, it.y - radius * 2), radius) }
+            FaceContour.NOSE_BRIDGE, FaceContour.NOSE_BOTTOM ->
+                around(landmark(face, FaceLandmark.NOSE_BASE))
+            FaceContour.UPPER_LIP_TOP, FaceContour.UPPER_LIP_BOTTOM,
+            FaceContour.LOWER_LIP_TOP, FaceContour.LOWER_LIP_BOTTOM -> {
+                val left = landmark(face, FaceLandmark.MOUTH_LEFT)
+                val right = landmark(face, FaceLandmark.MOUTH_RIGHT)
+                val bottom = landmark(face, FaceLandmark.MOUTH_BOTTOM)
+                when {
+                    left != null && right != null && bottom != null ->
+                        listOf(left, PointF((left.x + right.x) / 2f, left.y - radius), right, bottom)
+                    else -> around(bottom ?: left ?: right)
+                }
+            }
+            FaceContour.LEFT_CHEEK -> around(landmark(face, FaceLandmark.LEFT_CHEEK))
+            FaceContour.RIGHT_CHEEK -> around(landmark(face, FaceLandmark.RIGHT_CHEEK))
+            FaceContour.FACE -> {
+                val box = face.boundingBox
+                val cx = box.exactCenterX()
+                val cy = box.exactCenterY()
+                val rx = box.width() / 2f
+                val ry = box.height() / 2f
+                List(12) { i ->
+                    val angle = (Math.PI * 2 * i / 12).toFloat()
+                    PointF(cx + rx * cos(angle), cy + ry * sin(angle))
+                }
+            }
+            else -> null
+        }
+    }
+
+    private fun landmark(face: Face, type: Int): PointF? = face.getLandmark(type)?.position
+
+    private fun ring(center: PointF, radius: Float): List<PointF> =
+        List(8) { i ->
+            val angle = (Math.PI * 2 * i / 8).toFloat()
+            PointF(center.x + radius * cos(angle), center.y + radius * sin(angle))
+        }
 
     private fun centroid(points: List<PointF>): PointF {
         var x = 0f

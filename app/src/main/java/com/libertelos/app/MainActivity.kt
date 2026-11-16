@@ -40,6 +40,7 @@ import com.libertelos.app.ui.home.TransactionDetailScreen
 import com.libertelos.app.ui.ledger.LedgerFilter
 import com.libertelos.app.ui.ledger.LedgerScreen
 import com.libertelos.app.ui.ledger.LedgerTimeScope
+import com.libertelos.app.ui.security.FaceScanDialog
 import com.libertelos.app.ui.security.LockScreen
 import com.libertelos.app.ui.security.SecuritySettingsScreen
 import com.libertelos.app.ui.settings.DataSettingsScreen
@@ -70,6 +71,9 @@ private fun AppLockGate(content: @Composable () -> Unit) {
     var locked by remember {
         mutableStateOf(AppLockController.needsUnlock(prefs))
     }
+    var offerFaceEnroll by remember {
+        mutableStateOf(prefs.faceEnabled && prefs.faceTemplate == null)
+    }
 
     DisposableEffect(Unit) {
         val observer = object : DefaultLifecycleObserver {
@@ -93,6 +97,15 @@ private fun AppLockGate(content: @Composable () -> Unit) {
                 onUnlocked = {
                     AppLockController.unlock()
                     locked = false
+                }
+            )
+        } else if (offerFaceEnroll && prefs.faceTemplate == null) {
+            FaceScanDialog(
+                title = "录入本人面容",
+                onDismiss = { offerFaceEnroll = false },
+                onEnrolled = { template ->
+                    prefs.enableFace(template)
+                    offerFaceEnroll = false
                 }
             )
         }

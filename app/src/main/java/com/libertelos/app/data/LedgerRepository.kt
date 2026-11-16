@@ -592,8 +592,14 @@ class LedgerRepository(
         }
     }
 
-    suspend fun lastReimbursementAccountId(): Long? =
-        transactionDao.latestAccountIdByType(TxnType.REIMBURSEMENT)
+    /** 最近 [CategoryAccountSuggest.RECENT_LIMIT] 次报销中出现最多的到账账户（并列取最近出现的）。 */
+    suspend fun lastReimbursementAccountId(): Long? {
+        val visible = accountDao.listAll().asSequence().filter { !it.hidden }.map { it.id }.toSet()
+        return CategoryAccountSuggest.reimbursementAccountId(
+            transactions = transactionDao.listAll(),
+            visibleAccountIds = visible
+        )
+    }
 
     fun observeCategorySpend(year: Int, month: Int): Flow<List<CategorySpend>> {
         return combine(

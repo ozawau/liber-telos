@@ -134,7 +134,6 @@ fun AddScreen(
     var showExpenseSheet by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
-    var lastReimburseAccountApplied by remember { mutableStateOf(false) }
 
     val leafCategories = remember(categories, type) {
         categories.filter { it.type == type && it.isLeaf }
@@ -206,15 +205,6 @@ fun AddScreen(
         if (!isEdit) {
             accountId = null
             accountManual = false
-            lastReimburseAccountApplied = false
-            if (type == TxnType.REIMBURSEMENT) {
-                val lastId = viewModel.lastReimbursementAccountId()
-                if (lastId != null && accounts.any { it.id == lastId }) {
-                    accountId = lastId
-                    accountManual = false
-                    lastReimburseAccountApplied = true
-                }
-            }
         }
     }
 
@@ -280,13 +270,16 @@ fun AddScreen(
                 toAccountId = accounts.drop(1).firstOrNull()?.id ?: accounts.firstOrNull()?.id
             }
         }
-        if (type == TxnType.REIMBURSEMENT && !lastReimburseAccountApplied && accountId == null && !isEdit) {
-            val lastId = viewModel.lastReimbursementAccountId()
-            if (lastId != null && accounts.any { it.id == lastId }) {
-                accountId = lastId
-                lastReimburseAccountApplied = true
-            }
-        }
+    }
+
+    // 报销到账账户：最近 15 次里出现最多的账户。放在账户校正之后，避免被清掉。
+    LaunchedEffect(loaded, isEdit, type, accountManual, accounts, allTransactions) {
+        if (!loaded || isEdit || accountManual || type != TxnType.REIMBURSEMENT) return@LaunchedEffect
+        val suggested = CategoryAccountSuggest.reimbursementAccountId(
+            transactions = allTransactions,
+            visibleAccountIds = visibleAccountIds
+        ) ?: return@LaunchedEffect
+        accountId = suggested
     }
 
     val amountCents = remember(amount) {

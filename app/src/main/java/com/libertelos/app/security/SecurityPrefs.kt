@@ -21,6 +21,9 @@ class SecurityPrefs(context: Context) {
     val faceEnabled: Boolean
         get() = prefs.getBoolean(KEY_FACE_ENABLED, false)
 
+    val faceTemplate: FaceTemplate?
+        get() = prefs.getString(KEY_FACE_TEMPLATE, null)?.let { FaceTemplate.parse(it) }
+
     val anyEnabled: Boolean
         get() = passwordEnabled || patternEnabled || fingerprintEnabled || faceEnabled
 
@@ -83,8 +86,18 @@ class SecurityPrefs(context: Context) {
         prefs.edit().putBoolean(KEY_FINGERPRINT_ENABLED, enabled).apply()
     }
 
-    fun setFaceEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_FACE_ENABLED, enabled).apply()
+    fun enableFace(template: FaceTemplate) {
+        prefs.edit()
+            .putBoolean(KEY_FACE_ENABLED, true)
+            .putString(KEY_FACE_TEMPLATE, template.serialize())
+            .apply()
+    }
+
+    fun disableFace() {
+        prefs.edit()
+            .putBoolean(KEY_FACE_ENABLED, false)
+            .remove(KEY_FACE_TEMPLATE)
+            .apply()
     }
 
     companion object {
@@ -95,6 +108,7 @@ class SecurityPrefs(context: Context) {
         private const val KEY_PATTERN_HASH = "pattern_hash"
         private const val KEY_FINGERPRINT_ENABLED = "fingerprint_enabled"
         private const val KEY_FACE_ENABLED = "face_enabled"
+        private const val KEY_FACE_TEMPLATE = "face_template"
         private const val KEY_LAST_UNLOCK = "last_unlock_method"
 
         fun patternKey(dots: List<Int>): String = dots.joinToString("-")

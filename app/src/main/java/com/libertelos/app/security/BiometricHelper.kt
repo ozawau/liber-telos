@@ -11,6 +11,15 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 
 object BiometricHelper {
+    private var activePrompt: BiometricPrompt? = null
+
+    /** 关掉系统指纹半屏。面容或其他方式先解锁时，系统弹窗不会自己消失。 */
+    fun cancelActive() {
+        val prompt = activePrompt ?: return
+        activePrompt = null
+        runCatching { prompt.cancelAuthentication() }
+    }
+
     fun fingerprintAvailable(context: Context): Boolean {
         if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_FINGERPRINT)) {
             return false
@@ -44,16 +53,20 @@ object BiometricHelper {
             onError("指纹不可用")
             return
         }
+        cancelActive()
         val executor = ContextCompat.getMainExecutor(activity)
-        val prompt = BiometricPrompt(
+        lateinit var prompt: BiometricPrompt
+        prompt = BiometricPrompt(
             activity,
             executor,
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    if (activePrompt === prompt) activePrompt = null
                     onSuccess()
                 }
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    if (activePrompt === prompt) activePrompt = null
                     if (errorCode != BiometricPrompt.ERROR_USER_CANCELED &&
                         errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON &&
                         errorCode != BiometricPrompt.ERROR_CANCELED
@@ -63,6 +76,7 @@ object BiometricHelper {
                 }
             }
         )
+        activePrompt = prompt
         val info = BiometricPrompt.PromptInfo.Builder()
             .setTitle(title)
             .setSubtitle(subtitle)

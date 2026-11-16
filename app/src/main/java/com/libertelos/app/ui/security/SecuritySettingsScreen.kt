@@ -25,6 +25,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,6 +78,13 @@ fun SecuritySettingsScreen(
         dialog = target
     }
 
+    val faceTemplateMissing = faceOn && prefs.faceTemplate == null
+    LaunchedEffect(faceTemplateMissing) {
+        if (faceTemplateMissing && faceAvailable && dialog == null) {
+            dialog = SecurityDialog.FaceSetup
+        }
+    }
+
     when (dialog) {
         SecurityDialog.PasswordSetup -> PasswordSetupDialog(
             onDismiss = { dialog = null },
@@ -99,14 +107,14 @@ fun SecuritySettingsScreen(
             }
         )
         SecurityDialog.FaceSetup -> FaceScanDialog(
-            title = "开启面容解锁",
+            title = "录入本人面容",
             onDismiss = { dialog = null },
-            onSuccess = {
-                prefs.setFaceEnabled(true)
+            onEnrolled = { template ->
+                prefs.enableFace(template)
                 faceOn = true
                 AppLockController.unlock()
                 dialog = null
-                toast(context, "面容已开启")
+                toast(context, "面容已录入，只有本人可以解锁")
             }
         )
         SecurityDialog.DisablePassword,
@@ -122,7 +130,7 @@ fun SecuritySettingsScreen(
             val verifyPassword = passwordOn
             val verifyPattern = patternOn
             val verifyFingerprint = fingerprintOn && fingerprintAvailable
-            val verifyFace = faceOn && faceAvailable
+            val verifyFace = faceOn && faceAvailable && prefs.faceTemplate != null
             val canVerify = verifyPassword || verifyPattern || verifyFingerprint || verifyFace
 
             fun applyDisable() {
@@ -143,7 +151,7 @@ fun SecuritySettingsScreen(
                         toast(context, "指纹已关闭")
                     }
                     SecurityDialog.DisableFace -> {
-                        prefs.setFaceEnabled(false)
+                        prefs.disableFace()
                         faceOn = false
                         toast(context, "面容已关闭")
                     }
@@ -273,7 +281,8 @@ fun SecuritySettingsScreen(
                         title = "面容",
                         subtitle = when {
                             !faceAvailable && faceOn -> "设备暂不支持，可关闭"
-                            faceAvailable -> "开启时将用前置摄像头识别面容"
+                            faceOn && prefs.faceTemplate == null -> "尚未录入本人面容，请正对镜头完成录入"
+                            faceAvailable -> "录入后只有本人面容可以解锁"
                             else -> "当前设备不支持面容（无前置摄像头）"
                         },
                         checked = faceOn,

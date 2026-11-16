@@ -36,4 +36,33 @@ object CategoryAccountSuggest {
         val top = counts.filterValues { it == maxCount }.keys
         return recent.firstOrNull { it in top }
     }
+
+    /**
+     * 最近 [recentLimit] 次报销里出现次数最多的到账账户。
+     * 次数相同则取最近一笔（[transactions] 按发生时间、再按 id 从新到旧）。
+     */
+    fun reimbursementAccountId(
+        transactions: List<Transaction>,
+        visibleAccountIds: Set<Long>,
+        recentLimit: Int = RECENT_LIMIT
+    ): Long? {
+        val recent = transactions
+            .asSequence()
+            .filter { txn ->
+                txn.type == TxnType.REIMBURSEMENT &&
+                    txn.accountId != null &&
+                    txn.accountId in visibleAccountIds
+            }
+            .sortedWith(
+                compareByDescending<Transaction> { it.occurredAt }.thenByDescending { it.id }
+            )
+            .take(recentLimit)
+            .mapNotNull { it.accountId }
+            .toList()
+        if (recent.isEmpty()) return null
+        val counts = recent.groupingBy { it }.eachCount()
+        val maxCount = counts.values.max()
+        val top = counts.filterValues { it == maxCount }.keys
+        return recent.firstOrNull { it in top }
+    }
 }

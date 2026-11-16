@@ -19,6 +19,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -75,8 +76,13 @@ fun LockScreen(
 
     fun succeed(method: UnlockMethod) {
         if (!unlockedOnce.compareAndSet(false, true)) return
+        BiometricHelper.cancelActive()
         prefs.setLastUnlockMethod(method)
         onUnlocked()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { BiometricHelper.cancelActive() }
     }
 
     fun tryFingerprint() {
@@ -89,11 +95,26 @@ fun LockScreen(
         )
     }
 
-    // 只要开启面容：任意解锁界面下静默识别，成功直接进入
-    if (prefs.faceEnabled) {
+    val faceTemplate = remember { prefs.faceTemplate }
+    val faceOnly = prefs.faceEnabled &&
+        !prefs.passwordEnabled &&
+        !prefs.patternEnabled &&
+        !prefs.fingerprintEnabled
+    var faceStatus by remember {
+        mutableStateOf(
+            if (prefs.faceEnabled && faceTemplate == null && !faceOnly) {
+                "面容未录入，请用其他方式解锁"
+            } else {
+                null
+            }
+        )
+    }
+    if (prefs.faceEnabled && faceTemplate != null) {
         SilentFaceScanner(
             enabled = true,
-            onSuccess = { succeed(UnlockMethod.FACE) }
+            template = faceTemplate,
+            onVerified = { succeed(UnlockMethod.FACE) },
+            onStatus = { faceStatus = it }
         )
     }
 
@@ -107,7 +128,15 @@ fun LockScreen(
         }
     }
 
-    Column(
+    if (faceOnly && faceTemplate == null) {
+        FaceEnrollPane(
+            title = "录入本人面容",
+            onEnrolled = { enrolled ->
+                prefs.enableFace(enrolled)
+                succeed(UnlockMethod.FACE)
+            }
+        )
+    } else Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
@@ -127,6 +156,18 @@ fun LockScreen(
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        if (faceStatus != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = faceStatus!!,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (faceStatus == "面容不匹配") {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
         Spacer(Modifier.height(28.dp))
 
         if (modes.size > 1) {

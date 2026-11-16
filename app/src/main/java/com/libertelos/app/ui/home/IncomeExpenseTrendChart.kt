@@ -52,7 +52,8 @@ private val LegendOff = Color(0xFFB0B8C4)
 @Composable
 fun IncomeExpenseTrendChart(
     points: List<TrendPoint>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    title: String = "收支趋势"
 ) {
     var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
     var showIncome by remember { mutableStateOf(true) }
@@ -73,7 +74,7 @@ fun IncomeExpenseTrendChart(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "收支趋势",
+                text = title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )

@@ -16,6 +16,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -56,7 +57,13 @@ fun ConfirmIdentityDialog(
     val done = remember { AtomicBoolean(false) }
 
     fun succeed() {
-        if (done.compareAndSet(false, true)) onConfirmed()
+        if (!done.compareAndSet(false, true)) return
+        BiometricHelper.cancelActive()
+        onConfirmed()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { BiometricHelper.cancelActive() }
     }
 
     val modes = remember(passwordEnabled, patternEnabled) {
@@ -70,10 +77,14 @@ fun ConfirmIdentityDialog(
     var error by remember { mutableStateOf<String?>(null) }
     var patternKey by remember { mutableIntStateOf(0) }
 
-    if (faceEnabled) {
+    val faceTemplate = remember { prefs.faceTemplate }
+    var faceStatus by remember { mutableStateOf<String?>(null) }
+    if (faceEnabled && faceTemplate != null) {
         SilentFaceScanner(
             enabled = true,
-            onSuccess = { succeed() }
+            template = faceTemplate,
+            onVerified = { succeed() },
+            onStatus = { faceStatus = it }
         )
     }
 
@@ -173,6 +184,18 @@ fun ConfirmIdentityDialog(
                             )
                         }
                     }
+                }
+
+                if (faceStatus != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        faceStatus!!,
+                        color = if (faceStatus == "面容不匹配") {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
                 }
 
                 if (error != null) {

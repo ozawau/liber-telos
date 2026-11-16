@@ -192,15 +192,6 @@ interface TransactionDao {
     )
     suspend fun sumByLinked(type: TxnType, linkedId: Long): Long
 
-    @Query(
-        """
-        SELECT accountId FROM transactions
-        WHERE type = :type AND accountId IS NOT NULL
-        ORDER BY occurredAt DESC LIMIT 1
-        """
-    )
-    suspend fun latestAccountIdByType(type: TxnType): Long?
-
     @Query("SELECT * FROM transactions WHERE linkedTransactionId = :linkedId")
     suspend fun listLinked(linkedId: Long): List<Transaction>
 

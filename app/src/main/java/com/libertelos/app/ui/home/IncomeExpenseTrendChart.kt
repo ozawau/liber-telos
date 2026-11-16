@@ -38,8 +38,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.libertelos.app.data.TrendPoint
 import com.libertelos.app.ui.components.formatYuanPlain
 import com.libertelos.app.ui.theme.AmberOut
@@ -53,7 +56,8 @@ private val LegendOff = Color(0xFFB0B8C4)
 fun IncomeExpenseTrendChart(
     points: List<TrendPoint>,
     modifier: Modifier = Modifier,
-    title: String = "收支趋势"
+    title: String = "收支趋势",
+    showAxisLabels: Boolean = false
 ) {
     var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
     var showIncome by remember { mutableStateOf(true) }
@@ -281,6 +285,24 @@ fun IncomeExpenseTrendChart(
                             IntOffset(x, 0)
                         }
                 )
+            }
+        }
+
+        if (showAxisLabels && points.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                points.forEach { point ->
+                    Text(
+                        text = point.label.removeSuffix("年"),
+                        modifier = Modifier.weight(1f),
+                        fontSize = 9.sp,
+                        lineHeight = 11.sp,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

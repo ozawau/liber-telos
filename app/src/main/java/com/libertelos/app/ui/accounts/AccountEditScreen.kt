@@ -437,7 +437,7 @@ fun AccountEditScreen(
             Spacer(Modifier.height(8.dp))
             ToggleRow(
                 title = "隐藏账户",
-                subtitle = "隐藏后仍保留数据，可在此页继续编辑",
+                subtitle = "账户列表默认不显示。点右上角眼睛可以重新看到",
                 checked = hidden,
                 onCheckedChange = { hidden = it }
             )

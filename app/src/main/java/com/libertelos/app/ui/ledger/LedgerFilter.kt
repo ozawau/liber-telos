@@ -23,6 +23,12 @@ data class LedgerFilter(
     val month: Int = Calendar.getInstance().get(Calendar.MONTH) + 1,
     val period: ReportPeriod = ReportPeriod.MONTH,
     val accountId: Long? = null,
+    /**
+     * 分类筛选：
+     * - `null`：不限分类
+     * - [UNCATEGORIZED_ID]：无分类
+     * - 其他：指定一级或二级分类 id
+     */
     val categoryId: Long? = null,
     /** 空集表示不过滤类型 */
     val types: Set<TxnType> = allTypes
@@ -50,6 +56,9 @@ data class LedgerFilter(
 
     companion object {
         val allTypes: Set<TxnType> = TxnType.entries.toSet()
+
+        /** 筛选「无分类」流水的哨兵 id（非真实 categories 表主键） */
+        const val UNCATEGORIZED_ID = -1L
 
         fun homeDefault(): LedgerFilter = LedgerFilter(timeScope = LedgerTimeScope.MONTH)
 
@@ -113,11 +122,16 @@ fun List<TransactionWithDetails>.applyLedgerFilter(
                     return@filter false
                 }
             }
-            if (filter.categoryId != null) {
-                val id = filter.categoryId
-                val parentId = item.parentCategory?.id
-                val leafId = item.category?.id
-                if (parentId != id && leafId != id) return@filter false
+            when (val id = filter.categoryId) {
+                null -> Unit
+                LedgerFilter.UNCATEGORIZED_ID -> {
+                    if (item.category != null) return@filter false
+                }
+                else -> {
+                    val parentId = item.parentCategory?.id
+                    val leafId = item.category?.id
+                    if (parentId != id && leafId != id) return@filter false
+                }
             }
             true
         }

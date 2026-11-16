@@ -7,6 +7,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -68,6 +70,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.libertelos.app.data.Account
 import com.libertelos.app.data.Category
+import com.libertelos.app.data.CategoryGroup
 import com.libertelos.app.data.DefaultCategories
 import com.libertelos.app.data.ReportPeriod
 import com.libertelos.app.data.Transaction
@@ -357,8 +360,18 @@ private fun FilterPanel(
     onChange: (LedgerFilter) -> Unit,
     onDone: () -> Unit
 ) {
-    val parents = remember(categories) {
-        DefaultCategories.groupByParent(categories)
+    var showCategorySheet by remember { mutableStateOf(false) }
+    if (showCategorySheet) {
+        FilterCategorySheet(
+            categories = categories,
+            types = filter.types,
+            selectedId = filter.categoryId,
+            onSelect = { id ->
+                onChange(filter.copy(categoryId = id))
+                showCategorySheet = false
+            },
+            onDismiss = { showCategorySheet = false }
+        )
     }
     Column(
         modifier = Modifier
@@ -426,20 +439,19 @@ private fun FilterPanel(
         ) { id -> onChange(filter.copy(accountId = id)) }
 
         Text("分类", style = MaterialTheme.typography.labelLarge)
-        val categoryOptions = buildList {
-            add(null to "全部分类")
-            parents.forEach { group ->
-                add(group.parent.id to group.parent.name)
-                group.children.forEach { child ->
-                    add(child.id to "${group.parent.name} · ${child.name}")
-                }
-            }
-        }
-        FilterDropdown(
-            label = categoryOptions.firstOrNull { it.first == filter.categoryId }?.second
-                ?: "全部分类",
-            options = categoryOptions
-        ) { id -> onChange(filter.copy(categoryId = id)) }
+        Text(
+            text = categoryFilterLabel(filter.categoryId, categories),
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.White)
+                .border(1.dp, Color(0xFFD7DEE7), RoundedCornerShape(12.dp))
+                .clickable { showCategorySheet = true }
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        )
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -452,6 +464,201 @@ private fun FilterPanel(
             Spacer(Modifier.width(8.dp))
             TextButton(onClick = onDone) {
                 Text("完成", color = InkTeal)
+            }
+        }
+    }
+}
+
+private fun categoryFilterLabel(categoryId: Long?, categories: List<Category>): String {
+    return when (categoryId) {
+        null -> "全部分类"
+        LedgerFilter.UNCATEGORIZED_ID -> "无分类"
+        else -> {
+            val cat = categories.firstOrNull { it.id == categoryId } ?: return "全部分类"
+            if (cat.isLeaf) {
+                val parent = categories.firstOrNull { it.id == cat.parentId }
+                if (parent != null) "${parent.name} · ${cat.name}" else cat.name
+            } else {
+                cat.name
+            }
+        }
+    }
+}
+
+private data class FilterCategorySection(
+    val title: String?,
+    val groups: List<CategoryGroup>
+)
+
+private fun filterCategorySections(
+    categories: List<Category>,
+    types: Set<TxnType>
+): List<FilterCategorySection> {
+    val showExpense = types.contains(TxnType.EXPENSE) || types == LedgerFilter.allTypes
+    val showIncome = types.contains(TxnType.INCOME) || types == LedgerFilter.allTypes
+    val both = showExpense && showIncome && types == LedgerFilter.allTypes
+    return buildList {
+        if (showExpense) {
+            val groups = DefaultCategories.groupByParent(
+                categories.filter { it.type == TxnType.EXPENSE }
+            )
+            if (groups.isNotEmpty()) {
+                add(FilterCategorySection(if (both) "支出" else null, groups))
+            }
+        }
+        if (showIncome) {
+            val groups = DefaultCategories.groupByParent(
+                categories.filter { it.type == TxnType.INCOME }
+            )
+            if (groups.isNotEmpty()) {
+                add(FilterCategorySection(if (both) "收入" else null, groups))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun FilterCategorySheet(
+    categories: List<Category>,
+    types: Set<TxnType>,
+    selectedId: Long?,
+    onSelect: (Long?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sections = remember(categories, types) {
+        filterCategorySections(categories, types)
+    }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color.White,
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 10.dp)
+                    .size(width = 36.dp, height = 4.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(MaterialTheme.colorScheme.outline)
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.5f)
+                .padding(horizontal = 20.dp)
+        ) {
+            Text(
+                text = "选择分类",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(12.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        label = "全部分类",
+                        selected = selectedId == null
+                    ) { onSelect(null) }
+                    FilterChip(
+                        label = "无分类",
+                        selected = selectedId == LedgerFilter.UNCATEGORIZED_ID
+                    ) { onSelect(LedgerFilter.UNCATEGORIZED_ID) }
+                }
+                sections.forEach { section ->
+                    if (section.title != null) {
+                        Text(
+                            text = section.title,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    section.groups.forEach { group ->
+                        FilterCategoryGroup(
+                            group = group,
+                            selectedId = selectedId,
+                            onSelect = { onSelect(it) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FilterCategoryGroup(
+    group: CategoryGroup,
+    selectedId: Long?,
+    onSelect: (Long) -> Unit
+) {
+    val color = Color(group.parent.colorArgb)
+    val parentSelected = selectedId == group.parent.id
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { onSelect(group.parent.id) }
+                .padding(vertical = 2.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(color)
+            )
+            Spacer(Modifier.size(8.dp))
+            Text(
+                text = group.parent.name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (parentSelected) color else MaterialTheme.colorScheme.onSurface
+            )
+            if (parentSelected) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "全部",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = color
+                )
+            }
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            group.children.forEach { child ->
+                val selected = child.id == selectedId
+                Text(
+                    text = child.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(
+                            if (selected) color else MaterialTheme.colorScheme.surfaceVariant
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = if (selected) color else MaterialTheme.colorScheme.outline,
+                            shape = RoundedCornerShape(999.dp)
+                        )
+                        .clickable { onSelect(child.id) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                )
             }
         }
     }
@@ -574,7 +781,7 @@ private fun SummaryHeader(
             }
             LedgerTimeScope.YEAR -> {
                 PeriodNavHeader(
-                    title = "${filter.year}年",
+                    title = "${filter.year}",
                     subtitle = "共 $txnCount 笔",
                     incomeCents = incomeCents,
                     expenseCents = expenseCents,
@@ -653,7 +860,10 @@ private fun PeriodNavHeader(
                 text = title,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
-                fontSize = 28.sp
+                fontSize = 28.sp,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Clip
             )
             Text(
                 text = subtitle,
@@ -952,11 +1162,15 @@ private fun ledgerTitle(
     account: Account?,
     categories: List<Category>
 ): String {
-    val category = filter.categoryId?.let { id -> categories.firstOrNull { it.id == id } }
+    val categoryLabel = when (filter.categoryId) {
+        null -> null
+        LedgerFilter.UNCATEGORIZED_ID -> "无分类"
+        else -> categories.firstOrNull { it.id == filter.categoryId }?.name
+    }
     return when {
-        account != null && category != null -> "${account.name} · ${category.name}"
+        account != null && categoryLabel != null -> "${account.name} · $categoryLabel"
         account != null -> account.name
-        category != null -> category.name
+        categoryLabel != null -> categoryLabel
         else -> "流水"
     }
 }

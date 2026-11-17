@@ -58,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -124,9 +125,11 @@ fun LedgerScreen(
     val accounts by viewModel.visibleAccounts.collectAsStateWithLifecycle()
     val allAccounts by viewModel.accounts.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
-    var filter by remember { mutableStateOf(initialFilter) }
-    var showFilters by remember { mutableStateOf(false) }
-    var showPeriodPicker by remember { mutableStateOf(false) }
+    var filter by rememberSaveable(stateSaver = LedgerFilter.Saver) {
+        mutableStateOf(initialFilter)
+    }
+    var showFilters by rememberSaveable { mutableStateOf(false) }
+    var showPeriodPicker by rememberSaveable { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<Transaction?>(null) }
     var account by remember { mutableStateOf<Account?>(null) }
     val filterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)

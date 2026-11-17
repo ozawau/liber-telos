@@ -10,6 +10,7 @@ import com.libertelos.app.data.NoteEdits
 import com.libertelos.app.data.DefaultCategories
 import com.libertelos.app.data.LedgerRepository
 import com.libertelos.app.data.LedgerStorage
+import com.libertelos.app.data.DeviceSyncDump
 import com.libertelos.app.data.TechlogHistoricalImporter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,8 @@ class LiberTelosApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 必须在开库前：按需把加密账本导出明文，供 adb 同步到其他设备
+        DeviceSyncDump.runIfRequested(this)
         bindRepository()
         appScope.launch {
             runCatching {

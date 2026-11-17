@@ -37,6 +37,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +60,7 @@ import com.libertelos.app.data.AccountShareItem
 import com.libertelos.app.data.CategoryRankItem
 import com.libertelos.app.data.LedgerRepository
 import com.libertelos.app.data.TxnType
+import com.libertelos.app.data.allAccountsNetWorthCents
 import com.libertelos.app.ui.components.PeriodPickMode
 import com.libertelos.app.ui.components.PeriodPickerDialog
 import com.libertelos.app.ui.home.IncomeExpenseTrendChart
@@ -104,18 +107,40 @@ private data class StatsPeriod(
             LedgerTimeScope.YEAR -> "${year}年"
             else -> "全部"
         }
+
+    companion object {
+        val Saver = listSaver<StatsPeriod, Any>(
+            save = { listOf(it.scope.name, it.year, it.month) },
+            restore = {
+                StatsPeriod(
+                    scope = runCatching {
+                        LedgerTimeScope.valueOf(it[0] as String)
+                    }.getOrDefault(LedgerTimeScope.YEAR),
+                    year = it[1] as Int,
+                    month = it[2] as Int
+                )
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatsScreen(
     viewModel: LedgerViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onCategoryLedger: (
+        categoryId: Long,
+        type: TxnType,
+        timeScope: LedgerTimeScope,
+        year: Int,
+        month: Int
+    ) -> Unit = { _, _, _, _, _ -> }
 ) {
     val details by viewModel.allTransactionDetails.collectAsStateWithLifecycle()
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val now = remember { Calendar.getInstance() }
-    var period by remember {
+    var period by rememberSaveable(stateSaver = StatsPeriod.Saver) {
         mutableStateOf(
             StatsPeriod(
                 scope = LedgerTimeScope.YEAR,
@@ -124,7 +149,7 @@ fun StatsScreen(
             )
         )
     }
-    var showPeriodPicker by remember { mutableStateOf(false) }
+    var showPeriodPicker by rememberSaveable { mutableStateOf(false) }
 
     if (showPeriodPicker && period.scope != LedgerTimeScope.ALL) {
         if (period.scope == LedgerTimeScope.MONTH) {
@@ -161,7 +186,17 @@ fun StatsScreen(
         }
     }
     val (incomeCents, expenseCents) = remember(inRange) { filteredIncomeExpense(inRange) }
-    val balanceCents = incomeCents - expenseCents
+    val flowBalanceCents = incomeCents - expenseCents
+    // 「全部」：结余 = 流水结余 + 期初/余额变更 = 全账户净资产
+    val netWorthCents = remember(accounts) { accounts.allAccountsNetWorthCents() }
+    val openingAdjustmentCents = remember(netWorthCents, flowBalanceCents, period.scope) {
+        if (period.scope == LedgerTimeScope.ALL) netWorthCents - flowBalanceCents else 0L
+    }
+    val balanceCents = if (period.scope == LedgerTimeScope.ALL) {
+        netWorthCents
+    } else {
+        flowBalanceCents
+    }
     val txnCount = inRange.size
     val incomeCount = remember(inRange) {
         inRange.count { it.transaction.type == TxnType.INCOME }
@@ -252,7 +287,12 @@ fun StatsScreen(
                 SummaryHeroCard(
                     balanceCents = balanceCents,
                     incomeCents = incomeCents,
-                    expenseCents = expenseCents
+                    expenseCents = expenseCents,
+                    openingAdjustmentCents = if (period.scope == LedgerTimeScope.ALL) {
+                        openingAdjustmentCents
+                    } else {
+                        null
+                    }
                 )
             }
 
@@ -268,7 +308,16 @@ fun StatsScreen(
                 CategorySection(
                     title = "收入来源",
                     emptyText = "所选周期暂无收入",
-                    items = incomeBreakdown.items
+                    items = incomeBreakdown.items,
+                    onChildClick = { childId ->
+                        onCategoryLedger(
+                            childId,
+                            TxnType.INCOME,
+                            period.scope,
+                            period.year,
+                            period.month
+                        )
+                    }
                 )
             }
 
@@ -276,7 +325,16 @@ fun StatsScreen(
                 CategorySection(
                     title = "支出分布",
                     emptyText = "所选周期暂无支出",
-                    items = expenseBreakdown.items
+                    items = expenseBreakdown.items,
+                    onChildClick = { childId ->
+                        onCategoryLedger(
+                            childId,
+                            TxnType.EXPENSE,
+                            period.scope,
+                            period.year,
+                            period.month
+                        )
+                    }
                 )
             }
 
@@ -380,7 +438,8 @@ private fun PeriodNavRow(
 private fun SummaryHeroCard(
     balanceCents: Long,
     incomeCents: Long,
-    expenseCents: Long
+    expenseCents: Long,
+    openingAdjustmentCents: Long? = null
 ) {
     Column(
         modifier = Modifier
@@ -411,6 +470,14 @@ private fun SummaryHeroCard(
             fontWeight = FontWeight.Bold,
             fontSize = 34.sp
         )
+        if (openingAdjustmentCents != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "含期初/余额调整 ${formatAmountGrouped(openingAdjustmentCents)}",
+                color = Color(0xFFB7DED9),
+                style = MaterialTheme.typography.labelMedium
+            )
+        }
         Spacer(Modifier.height(16.dp))
         Row(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
@@ -501,7 +568,8 @@ private fun MilestoneStat(
 private fun CategorySection(
     title: String,
     emptyText: String,
-    items: List<CategoryRankItem>
+    items: List<CategoryRankItem>,
+    onChildClick: (Long) -> Unit
 ) {
     var expandedIds by remember(items) { mutableStateOf(setOf<Long>()) }
     Column(
@@ -557,6 +625,7 @@ private fun CategorySection(
                                 expandable = false,
                                 expanded = false,
                                 onToggle = {},
+                                onClick = { onChildClick(child.category.id) },
                                 compact = true
                             )
                         }
@@ -574,18 +643,24 @@ private fun CategoryShareRow(
     expandable: Boolean,
     expanded: Boolean,
     onToggle: () -> Unit,
+    onClick: (() -> Unit)? = null,
     compact: Boolean = false
 ) {
     val color = Color(item.category.colorArgb)
     val iconSize = if (compact) 28.dp else 36.dp
+    val rowClick = when {
+        expandable -> onToggle
+        onClick != null -> onClick
+        else -> null
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .then(
-                if (expandable) {
+                if (rowClick != null) {
                     Modifier
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable(onClick = onToggle)
+                        .clickable(onClick = rowClick)
                 } else {
                     Modifier
                 }
@@ -860,7 +935,6 @@ private fun buildAccountShares(
     liability: Boolean
 ): List<AccountShareItem> {
     val filtered = accounts
-        .filter { !it.hidden && it.includeInTotal }
         .filter { liability == it.kind.isLiability }
         .map { it to kotlin.math.abs(it.balanceCents) }
         .filter { it.second > 0 }
@@ -874,9 +948,6 @@ private fun buildAccountShares(
         )
     }
 }
-
-private val AccountKind.isLiability: Boolean
-    get() = this == AccountKind.CREDIT || this == AccountKind.VIRTUAL_LIABILITY
 
 private fun formatAmountGrouped(cents: Long): String {
     val nf = NumberFormat.getNumberInstance(Locale.CHINA).apply {

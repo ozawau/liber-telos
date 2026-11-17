@@ -170,7 +170,7 @@ private fun LiberTelosNav(app: LiberTelosApp) {
             )
         }
         composable(
-            route = "ledger?accountId={accountId}&categoryId={categoryId}&type={type}&period={period}&timeScope={timeScope}",
+            route = "ledger?accountId={accountId}&categoryId={categoryId}&type={type}&period={period}&timeScope={timeScope}&year={year}&month={month}",
             arguments = listOf(
                 navArgument("accountId") {
                     type = NavType.StringType
@@ -196,6 +196,16 @@ private fun LiberTelosNav(app: LiberTelosApp) {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
+                },
+                navArgument("year") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("month") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
                 }
             )
         ) { entry ->
@@ -204,7 +214,9 @@ private fun LiberTelosNav(app: LiberTelosApp) {
                 categoryId = entry.arguments?.getString("categoryId"),
                 typeName = entry.arguments?.getString("type"),
                 periodName = entry.arguments?.getString("period"),
-                timeScopeName = entry.arguments?.getString("timeScope")
+                timeScopeName = entry.arguments?.getString("timeScope"),
+                yearText = entry.arguments?.getString("year"),
+                monthText = entry.arguments?.getString("month")
             )
             LedgerScreen(
                 viewModel = viewModel,
@@ -272,7 +284,21 @@ private fun LiberTelosNav(app: LiberTelosApp) {
         composable("stats") {
             StatsScreen(
                 viewModel = viewModel,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onCategoryLedger = { categoryId, type, timeScope, year, month ->
+                    val params = buildString {
+                        append("categoryId=$categoryId")
+                        append("&type=${type.name}")
+                        append("&timeScope=${timeScope.name}")
+                        if (timeScope == LedgerTimeScope.YEAR || timeScope == LedgerTimeScope.MONTH) {
+                            append("&year=$year")
+                        }
+                        if (timeScope == LedgerTimeScope.MONTH) {
+                            append("&month=$month")
+                        }
+                    }
+                    navController.navigate("ledger?$params")
+                }
             )
         }
         composable("accounts") {
@@ -312,7 +338,9 @@ private fun ledgerFilterFromArgs(
     categoryId: String?,
     typeName: String?,
     periodName: String?,
-    timeScopeName: String?
+    timeScopeName: String?,
+    yearText: String? = null,
+    monthText: String? = null
 ): LedgerFilter {
     val account = accountId?.toLongOrNull()
     val category = categoryId?.toLongOrNull()
@@ -322,16 +350,32 @@ private fun ledgerFilterFromArgs(
     val timeScope = timeScopeName?.let {
         runCatching { LedgerTimeScope.valueOf(it) }.getOrNull()
     }
+    val year = yearText?.toIntOrNull()
+    val month = monthText?.toIntOrNull()?.coerceIn(1, 12)
 
     return when {
         account != null && category == null && type == null && timeScope == LedgerTimeScope.ALL ->
             LedgerFilter.forAccount(account)
-        category != null && type != null ->
-            LedgerFilter.forCategory(category, type, period).let { base ->
-                if (account != null) base.copy(accountId = account) else base
+        category != null && type != null -> {
+            val base = if (timeScope != null) {
+                val now = java.util.Calendar.getInstance()
+                LedgerFilter(
+                    timeScope = timeScope,
+                    year = year ?: now.get(java.util.Calendar.YEAR),
+                    month = month ?: (now.get(java.util.Calendar.MONTH) + 1),
+                    period = period,
+                    categoryId = category,
+                    types = setOf(type)
+                )
+            } else {
+                LedgerFilter.forCategory(category, type, period)
             }
+            if (account != null) base.copy(accountId = account) else base
+        }
         else -> LedgerFilter.homeDefault().copy(
             timeScope = timeScope ?: LedgerTimeScope.MONTH,
+            year = year ?: LedgerFilter.homeDefault().year,
+            month = month ?: LedgerFilter.homeDefault().month,
             period = period,
             accountId = account,
             categoryId = category,

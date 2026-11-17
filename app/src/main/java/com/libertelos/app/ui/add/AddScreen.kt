@@ -210,7 +210,7 @@ fun AddScreen(
 
     val visibleAccountIds = remember(accounts) { accounts.map { it.id }.toSet() }
 
-    // 新建：按时段推荐最常用分类，并自动填账户（默认账户或近 15 笔最常用）
+    // 新建：近 30 天同时段最常用分类，并自动填账户（默认账户或近 15 笔最常用）
     LaunchedEffect(
         loaded,
         isEdit,

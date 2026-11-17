@@ -106,7 +106,7 @@ object DataImporter {
                 billingDay = cell(row, idx, "billingDay", "账单日")?.toIntOrNull(),
                 repaymentDay = cell(row, idx, "repaymentDay", "还款日")?.toIntOrNull(),
                 iconKey = cell(row, idx, "iconKey", "图标")?.ifBlank { "cash" } ?: "cash",
-                includeInTotal = parseBool(cell(row, idx, "includeInTotal", "计入总账"), true),
+                includeInTotal = true,
                 hidden = parseBool(cell(row, idx, "hidden", "隐藏"), false),
                 balanceCents = parseYuanCents(cell(row, idx, "balanceYuan", "余额")),
                 createdAt = parseTime(cell(row, idx, "createdAt", "创建时间"))

@@ -43,6 +43,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +61,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.libertelos.app.data.Account
 import com.libertelos.app.data.AccountKind
 import com.libertelos.app.data.AccountKindOrderStore
+import com.libertelos.app.data.allAccountsAssetCents
+import com.libertelos.app.data.allAccountsLiabilityCents
+import com.libertelos.app.data.allAccountsNetWorthCents
 import com.libertelos.app.ui.components.AccountIconBadge
 import com.libertelos.app.ui.components.formatYuanPlain
 import com.libertelos.app.ui.theme.InkTeal
@@ -78,7 +82,7 @@ fun AccountsScreen(
     val context = LocalContext.current
     val density = LocalDensity.current
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
-    var showExcluded by remember { mutableStateOf(false) }
+    var showExcluded by rememberSaveable { mutableStateOf(false) }
     var kindOrder by remember { mutableStateOf(AccountKindOrderStore.load(context)) }
     var draggingKind by remember { mutableStateOf<AccountKind?>(null) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
@@ -87,7 +91,7 @@ fun AccountsScreen(
         if (showExcluded) {
             accounts
         } else {
-            accounts.filter { it.includeInTotal && !it.hidden }
+            accounts.filter { !it.hidden }
         }
     }
     val grouped = remember(visibleAccounts) {
@@ -97,13 +101,10 @@ fun AccountsScreen(
         kindOrder.filter { grouped[it].orEmpty().isNotEmpty() }
     }
     val totals = remember(accounts) {
-        val counted = accounts.filter { it.includeInTotal }
-        val assets = counted.filterNot { it.kind.isLiability }.sumOf { it.balanceCents }
-        val liabilities = counted.filter { it.kind.isLiability }.sumOf { it.balanceCents }
         AccountTotals(
-            netAssetsCents = assets - liabilities,
-            totalAssetsCents = assets,
-            totalLiabilitiesCents = liabilities
+            netAssetsCents = accounts.allAccountsNetWorthCents(),
+            totalAssetsCents = accounts.allAccountsAssetCents(),
+            totalLiabilitiesCents = accounts.allAccountsLiabilityCents()
         )
     }
 
@@ -139,9 +140,9 @@ fun AccountsScreen(
                             imageVector = if (showExcluded) Icons.Default.Visibility
                             else Icons.Default.VisibilityOff,
                             contentDescription = if (showExcluded) {
-                                "隐藏已隐藏和不计入总账的账户"
+                                "隐藏已隐藏的账户"
                             } else {
-                                "显示已隐藏和不计入总账的账户"
+                                "显示已隐藏的账户"
                             }
                         )
                     }
@@ -173,7 +174,7 @@ fun AccountsScreen(
                     text = if (accounts.isEmpty()) {
                         "还没有账户，点右下角新建"
                     } else {
-                        "当前没有要显示的账户\n点右上角可显示隐藏账户和不计入总账的账户"
+                        "当前没有要显示的账户\n点右上角可显示隐藏账户"
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -307,9 +308,6 @@ private data class AccountTotals(
     val totalLiabilitiesCents: Long
 )
 
-private val AccountKind.isLiability: Boolean
-    get() = this == AccountKind.CREDIT || this == AccountKind.VIRTUAL_LIABILITY
-
 @Composable
 private fun AccountTotalsCard(totals: AccountTotals) {
     Column(
@@ -397,7 +395,6 @@ private fun AccountRow(
                 if (account.cardNumber.isNotBlank()) {
                     add(maskCard(account.cardNumber))
                 }
-                if (!account.includeInTotal) add("不计入总账")
             }.joinToString(" · ")
             Text(
                 text = meta,

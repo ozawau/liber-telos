@@ -269,7 +269,6 @@ class LedgerViewModel(
         billingDay: Int?,
         repaymentDay: Int?,
         iconKey: String,
-        includeInTotal: Boolean,
         hidden: Boolean,
         balanceYuan: String,
         createBalanceAdjustment: Boolean = false,
@@ -296,7 +295,7 @@ class LedgerViewModel(
                     billingDay = if (creditFields) billingDay else null,
                     repaymentDay = if (creditFields) repaymentDay else null,
                     iconKey = iconKey,
-                    includeInTotal = includeInTotal,
+                    includeInTotal = true,
                     hidden = hidden,
                     balanceCents = balanceCents,
                     createdAt = createdAt ?: System.currentTimeMillis()

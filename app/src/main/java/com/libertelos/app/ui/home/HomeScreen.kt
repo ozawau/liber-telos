@@ -40,6 +40,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,8 +82,14 @@ fun HomeScreen(
     val report by viewModel.incomeExpenseReport.collectAsStateWithLifecycle()
     val allTransactions by viewModel.allTransactions.collectAsStateWithLifecycle()
     val allDetails by viewModel.allTransactionDetails.collectAsStateWithLifecycle()
-    var balancePeriod by remember { mutableStateOf(ReportPeriod.YEAR) }
-    var rankingType by remember { mutableStateOf(TxnType.EXPENSE) }
+    var balancePeriodName by rememberSaveable { mutableStateOf(ReportPeriod.YEAR.name) }
+    var rankingTypeName by rememberSaveable { mutableStateOf(TxnType.EXPENSE.name) }
+    val balancePeriod = remember(balancePeriodName) {
+        runCatching { ReportPeriod.valueOf(balancePeriodName) }.getOrDefault(ReportPeriod.YEAR)
+    }
+    val rankingType = remember(rankingTypeName) {
+        runCatching { TxnType.valueOf(rankingTypeName) }.getOrDefault(TxnType.EXPENSE)
+    }
     var swipeOffsetX by remember { mutableFloatStateOf(0f) }
     val latestOnLedger by rememberUpdatedState(onLedger)
     val latestOnAccounts by rememberUpdatedState(onAccounts)
@@ -196,7 +203,7 @@ fun HomeScreen(
                 item {
                     SummaryPanel(
                         period = balancePeriod,
-                        onPeriodChange = { balancePeriod = it },
+                        onPeriodChange = { balancePeriodName = it.name },
                         summary = balanceSummary
                     )
                 }
@@ -208,7 +215,7 @@ fun HomeScreen(
                 item {
                     CategoryRankingCard(
                         ranking = categoryRanking,
-                        onTypeChange = { rankingType = it },
+                        onTypeChange = { rankingTypeName = it.name },
                         onCategoryClick = { item ->
                             onCategoryLedger(
                                 item.category.id,

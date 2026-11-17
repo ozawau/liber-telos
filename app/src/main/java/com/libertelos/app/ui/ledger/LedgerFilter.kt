@@ -1,5 +1,6 @@
 package com.libertelos.app.ui.ledger
 
+import androidx.compose.runtime.saveable.listSaver
 import com.libertelos.app.data.ReportPeriod
 import com.libertelos.app.data.TransactionWithDetails
 import com.libertelos.app.data.TxnType
@@ -59,6 +60,45 @@ data class LedgerFilter(
 
         /** 筛选「无分类」流水的哨兵 id（非真实 categories 表主键） */
         const val UNCATEGORIZED_ID = -1L
+
+        /** 供 rememberSaveable：离开再返回时保留筛选，弹出栈后新进仍用默认。 */
+        val Saver = listSaver<LedgerFilter, Any?>(
+            save = { f ->
+                listOf(
+                    f.timeScope.name,
+                    f.year,
+                    f.month,
+                    f.period.name,
+                    f.accountId,
+                    f.categoryId,
+                    f.types.joinToString(",") { it.name }
+                )
+            },
+            restore = { raw ->
+                val typeNames = (raw[6] as? String).orEmpty()
+                val types = if (typeNames.isBlank()) {
+                    allTypes
+                } else {
+                    typeNames.split(',')
+                        .mapNotNull { runCatching { TxnType.valueOf(it) }.getOrNull() }
+                        .toSet()
+                        .ifEmpty { allTypes }
+                }
+                LedgerFilter(
+                    timeScope = runCatching {
+                        LedgerTimeScope.valueOf(raw[0] as String)
+                    }.getOrDefault(LedgerTimeScope.MONTH),
+                    year = raw[1] as Int,
+                    month = raw[2] as Int,
+                    period = runCatching {
+                        ReportPeriod.valueOf(raw[3] as String)
+                    }.getOrDefault(ReportPeriod.MONTH),
+                    accountId = raw[4] as Long?,
+                    categoryId = raw[5] as Long?,
+                    types = types
+                )
+            }
+        )
 
         fun homeDefault(): LedgerFilter = LedgerFilter(timeScope = LedgerTimeScope.MONTH)
 

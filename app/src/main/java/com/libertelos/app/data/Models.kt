@@ -18,8 +18,31 @@ enum class AccountKind(val label: String) {
     DEBIT("储蓄卡账户"),
     INVESTMENT("投资账户"),
     VIRTUAL("虚拟账户"),
-    VIRTUAL_LIABILITY("虚拟负债账户")
+    VIRTUAL_LIABILITY("虚拟负债账户");
+
+    val isLiability: Boolean
+        get() = this == CREDIT || this == VIRTUAL_LIABILITY
 }
+
+/** 全账户净资产（资产余额合计 − 负债余额合计）。 */
+fun List<Account>.allAccountsNetWorthCents(): Long {
+    var assets = 0L
+    var liabilities = 0L
+    forEach { account ->
+        if (account.kind.isLiability) {
+            liabilities += account.balanceCents
+        } else {
+            assets += account.balanceCents
+        }
+    }
+    return assets - liabilities
+}
+
+fun List<Account>.allAccountsAssetCents(): Long =
+    filterNot { it.kind.isLiability }.sumOf { it.balanceCents }
+
+fun List<Account>.allAccountsLiabilityCents(): Long =
+    filter { it.kind.isLiability }.sumOf { it.balanceCents }
 
 @Entity(tableName = "categories")
 data class Category(
@@ -59,6 +82,7 @@ data class Account(
     /** 信用卡还款日（每月几号，1-31） */
     val repaymentDay: Int? = null,
     val iconKey: String,
+    /** 历史字段，始终为 true；列表可见性只看 [hidden]。 */
     val includeInTotal: Boolean = true,
     val hidden: Boolean = false,
     val balanceCents: Long = 0,

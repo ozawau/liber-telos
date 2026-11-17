@@ -76,7 +76,6 @@ fun AccountEditScreen(
     var billingDay by remember { mutableStateOf("") }
     var repaymentDay by remember { mutableStateOf("") }
     var iconKey by remember { mutableStateOf("cash") }
-    var includeInTotal by remember { mutableStateOf(true) }
     var hidden by remember { mutableStateOf(false) }
     var balance by remember { mutableStateOf("0.00") }
     var createBalanceAdjustment by remember { mutableStateOf(false) }
@@ -101,7 +100,6 @@ fun AccountEditScreen(
                 billingDay = account.billingDay?.toString().orEmpty()
                 repaymentDay = account.repaymentDay?.toString().orEmpty()
                 iconKey = account.iconKey
-                includeInTotal = account.includeInTotal
                 hidden = account.hidden
                 balance = String.format(Locale.CHINA, "%.2f", account.balanceCents / 100.0)
                 createBalanceAdjustment = false
@@ -429,13 +427,6 @@ fun AccountEditScreen(
 
             Spacer(Modifier.height(18.dp))
             ToggleRow(
-                title = "计入总账",
-                subtitle = "关闭后，该账户不参与净资产汇总",
-                checked = includeInTotal,
-                onCheckedChange = { includeInTotal = it }
-            )
-            Spacer(Modifier.height(8.dp))
-            ToggleRow(
                 title = "隐藏账户",
                 subtitle = "账户列表默认不显示。点右上角眼睛可以重新看到",
                 checked = hidden,
@@ -456,7 +447,6 @@ fun AccountEditScreen(
                         billingDay = billingDay.toIntOrNull(),
                         repaymentDay = repaymentDay.toIntOrNull(),
                         iconKey = iconKey,
-                        includeInTotal = includeInTotal,
                         hidden = hidden,
                         balanceYuan = balance,
                         createBalanceAdjustment = createBalanceAdjustment && balanceChanged,

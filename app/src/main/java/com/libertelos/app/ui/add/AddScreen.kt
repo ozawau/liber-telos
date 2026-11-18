@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.AlertDialog
@@ -727,6 +728,16 @@ private fun AmountField(amount: String, onAmountChange: (String) -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         placeholder = { Text("0.00") },
         prefix = { Text("¥ ") },
+        trailingIcon = {
+            if (amount.isNotEmpty()) {
+                IconButton(onClick = { onAmountChange("") }) {
+                    Icon(
+                        Icons.Default.Clear,
+                        contentDescription = "清空金额"
+                    )
+                }
+            }
+        },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         shape = RoundedCornerShape(14.dp)

@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.fragment.app.FragmentActivity
 import com.libertelos.app.security.BiometricHelper
 import com.libertelos.app.security.SecurityPrefs
@@ -90,6 +91,7 @@ fun ConfirmIdentityDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(decorFitsSystemWindows = true),
         title = { Text(title) },
         text = {
             Column {

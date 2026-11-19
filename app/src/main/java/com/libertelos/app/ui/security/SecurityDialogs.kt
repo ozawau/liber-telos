@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 
 @Composable
 fun PasswordSetupDialog(
@@ -31,6 +32,7 @@ fun PasswordSetupDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(decorFitsSystemWindows = true),
         title = { Text("设置密码") },
         text = {
             Column {
@@ -93,6 +95,7 @@ fun PasswordVerifyDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(decorFitsSystemWindows = true),
         title = { Text(title) },
         text = {
             Column {
